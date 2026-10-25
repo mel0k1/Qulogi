@@ -5,26 +5,37 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/mel0k1/qulogi/internal/engine"
+	"github.com/mel0k1/qulogi/mobile"
 )
 
 func main() {
 	var (
-		mode    = flag.String("mode", "dpi", "dpi, tunnel or vpn-egress helper (tunnel|dpi)")
-		listen  = flag.String("listen", "127.0.0.1:1080", "local socks5 listen address")
-		server  = flag.String("server", "", "tunnel server host:port")
-		psk     = flag.String("psk", "", "pre-shared key")
-		split   = flag.Int("split", 0, "clienthello split position, 0 = after sni, -1 = off")
-		multi   = flag.Bool("multi", false, "extra split inside the ClientHello")
-		camo    = flag.Bool("camo", false, "disguise the tunnel as TLS traffic to the whitelisted SNI")
-		sni     = flag.String("sni", "vkvideo.ru", "SNI claimed by the camouflage ClientHello")
-		fakeCH  = flag.Bool("fake-ch", false, "send the camouflage ClientHello as a separate flight")
-		verbose = flag.Bool("v", false, "print engine events")
+		mode         = flag.String("mode", "dpi", "dpi, tunnel or vpn-egress helper (tunnel|dpi)")
+		listen       = flag.String("listen", "127.0.0.1:1080", "local socks5 listen address")
+		server       = flag.String("server", "", "tunnel server host:port")
+		psk          = flag.String("psk", "", "pre-shared key")
+		split        = flag.Int("split", 0, "clienthello split position, 0 = after sni, -1 = off")
+		multi        = flag.Bool("multi", false, "extra split inside the ClientHello")
+		camo         = flag.Bool("camo", false, "disguise the tunnel as TLS traffic to the whitelisted SNI")
+		sni          = flag.String("sni", "vkvideo.ru", "SNI claimed by the camouflage ClientHello")
+		fakeCH       = flag.Bool("fake-ch", false, "send the camouflage ClientHello as a separate flight")
+		smart        = flag.Bool("smart-split", false, "whitelisted destinations bypass the tunnel")
+		direct       = flag.String("direct-domains", "", "extra direct rules, comma-separated")
+		proxy        = flag.String("proxy-domains", "", "force-through-tunnel rules, comma-separated")
+		discoverJSON = flag.String("discover", "", "fetch the relay catalog (params JSON) and print the report, then exit")
+		verbose      = flag.Bool("v", false, "print engine events")
 	)
 	flag.Parse()
+
+	if *discoverJSON != "" {
+		fmt.Println(mobile.FetchDirectory(*discoverJSON))
+		return
+	}
 
 	if *server != "" && *mode == "dpi" {
 		*mode = "tunnel"
@@ -38,26 +49,42 @@ func main() {
 	}
 
 	e := engine.New(engine.Config{
-		Mode:   engine.Mode(*mode),
-		Listen: *listen,
-		Server: *server,
-		PSK:    *psk,
-		Split:  *split,
-		Multi:  *multi,
-		Camo:   *camo,
-		SNI:    *sni,
-		FakeCH: *fakeCH,
-		Log:    logf,
+		Mode:       engine.Mode(*mode),
+		Listen:     *listen,
+		Server:     *server,
+		PSK:        *psk,
+		Split:      *split,
+		Multi:      *multi,
+		Camo:       *camo,
+		SNI:        *sni,
+		FakeCH:     *fakeCH,
+		SmartSplit: *smart,
+		Direct:     splitList(*direct),
+		Proxy:      splitList(*proxy),
+		Log:        logf,
 	})
 	if err := e.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "qulogi:", err)
 		os.Exit(1)
 	}
 	st := e.Status()
-	fmt.Printf("qulogi on %s (mode %s, camo=%v)\n", st.Listen, st.Mode, *camo)
+	fmt.Printf("qulogi on %s (mode %s, camo=%v, smart-split=%v)\n", st.Listen, st.Mode, *camo, *smart)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 	e.Stop()
+}
+
+func splitList(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
