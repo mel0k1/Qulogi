@@ -31,11 +31,15 @@ type Transport struct {
 	// Addr is the transport address: host:port for tcp-backed types, a URL
 	// for http-backed ones.
 	Addr string `json:"addr"`
-	// SNI is the camouflage ServerName for qulogi transports.
+	// SNI is the camouflage ServerName for qulogi transports. For
+	// cdn-front it is the whitelisted SNI of the CDN edge.
 	SNI string `json:"sni,omitempty"`
 	// FP is the expected sha256 fingerprint of the relay TLS certificate
 	// (base64, no padding). Empty means trust the WebPKI chain instead.
 	FP string `json:"fp,omitempty"`
+	// Host carries the relay hostname behind the CDN edge for cdn-front
+	// transports (the Host header routed by the CDN to the origin).
+	Host string `json:"host,omitempty"`
 }
 
 // Relay is a single relay and every transport it can be reached by.

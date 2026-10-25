@@ -156,7 +156,7 @@ func fetchHTTP(ctx context.Context, url string, httpc *http.Client) (*Directory,
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Qulogi/0.3 (+https://github.com/mel0k1/Qulogi)")
+	req.Header.Set("User-Agent", "Qulogi/0.4 (+https://github.com/mel0k1/Qulogi)")
 	resp, err := httpc.Do(req)
 	if err != nil {
 		return nil, err

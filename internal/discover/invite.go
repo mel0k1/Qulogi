@@ -35,6 +35,9 @@ func RelayInvite(id string, t Transport, psk string) string {
 	if t.SNI != "" {
 		q.Set("sni", t.SNI)
 	}
+	if t.Host != "" {
+		q.Set("host", t.Host)
+	}
 	if t.FP != "" {
 		q.Set("fp", t.FP)
 	}
@@ -74,7 +77,7 @@ func ParseInvite(link string) (*Invite, error) {
 	case "relay":
 		inv := &Invite{Kind: "relay"}
 		inv.ID = strings.Trim(u.Path, "/")
-		t := Transport{Type: q.Get("type"), Addr: q.Get("addr"), SNI: q.Get("sni"), FP: q.Get("fp")}
+		t := Transport{Type: q.Get("type"), Addr: q.Get("addr"), SNI: q.Get("sni"), FP: q.Get("fp"), Host: q.Get("host")}
 		if t.Type == "" || t.Addr == "" {
 			return nil, fmt.Errorf("discover: relay invite needs type and addr")
 		}
