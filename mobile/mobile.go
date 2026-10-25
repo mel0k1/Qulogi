@@ -18,7 +18,7 @@ import (
 	"github.com/mel0k1/qulogi/internal/vpn"
 )
 
-const version = "0.3.0"
+const version = "0.4.0"
 
 var (
 	mu        sync.Mutex
@@ -159,11 +159,16 @@ func StartVPN(fd int32, mtu int32) error {
 	}
 	// SNI sniffing: with a relay and the smart split enabled, TCP flows
 	// are routed by the hostname from the ClientHello, not just by IP.
-	if vpnConf != nil && (vpnConf.Server != "" || vpnConf.DAVURL != "") && vpnConf.SmartSplit {
+	if vpnConf != nil && (vpnConf.Server != "" || vpnConf.DAVURL != "" || vpnConf.CDNEdge != "" || vpnConf.BotLPURL != "") && vpnConf.SmartSplit {
 		cfg.RouteSNI = func(sni, dst string) string {
 			return vpnUp.RouteDomain(sni, dst)
 		}
 		cfg.DialVia = vpnUp.DialVia
+	}
+	// UDP over the tunnel: QUIC and friends ride the relay as framed
+	// datagrams instead of being dropped.
+	if vpnConf != nil && (vpnConf.Server != "" || vpnConf.DAVURL != "" || vpnConf.CDNEdge != "" || vpnConf.BotLPURL != "") {
+		cfg.DialPacket = vpnUp.DialPacket
 	}
 	st, err := vpn.New(cfg)
 	if err != nil {

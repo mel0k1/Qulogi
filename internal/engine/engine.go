@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mel0k1/qulogi/internal/botlp"
+	"github.com/mel0k1/qulogi/internal/cdnfront"
 	"github.com/mel0k1/qulogi/internal/dpi"
 	"github.com/mel0k1/qulogi/internal/route"
 	"github.com/mel0k1/qulogi/internal/socks5"
@@ -63,6 +65,23 @@ type Config struct {
 	// Protect (Android) marks sockets so they bypass the VPN interface.
 	Protect func(int32) bool `json:"-"`
 	Log     func(string)     `json:"-"`
+
+	// CDN fronting (M4): the client talks TLS to a whitelisted CDN
+	// edge while the inner Host header routes to the relay parked
+	// behind the same CDN. Takes priority over botlp/DAV and the
+	// plain TCP server; camouflage is pointless (the edge speaks real
+	// TLS with a WebPKI certificate).
+	CDNEdge string `json:"cdn_edge,omitempty"`
+	CDNSNI  string `json:"cdn_sni,omitempty"`
+	CDNHost string `json:"cdn_host,omitempty"`
+
+	// Bot long-poll transport (M5): tunnel frames ride the long-poll
+	// API of a whitelisted platform (the botlp contract in
+	// internal/botlp). BotLPURL is the platform API base, BotLPRoom is
+	// the operator's base room — sessions announce on <base>-ctl.
+	BotLPURL   string `json:"botlp_url,omitempty"`
+	BotLPToken string `json:"botlp_token,omitempty"`
+	BotLPRoom  string `json:"botlp_room,omitempty"`
 
 	// WebDAV storage transport ("device → whitelisted cloud → relay"):
 	// when DAVURL is set, tunnel sessions ride through WebDAV mailboxes
@@ -124,7 +143,7 @@ func (e *Engine) Start() error {
 	}
 	switch e.cfg.Mode {
 	case ModeTunnel:
-		if e.cfg.Server == "" && e.cfg.DAVURL == "" {
+		if e.cfg.Server == "" && e.cfg.DAVURL == "" && e.cfg.CDNEdge == "" && e.cfg.BotLPURL == "" {
 			return errors.New("engine: server required in tunnel mode")
 		}
 		if e.cfg.PSK == "" {
@@ -203,6 +222,34 @@ func (e *Engine) DialContext(ctx context.Context, network, addr string) (net.Con
 
 func (e *Engine) tunnelClient() *tunnel.Client {
 	c := &tunnel.Client{Server: e.cfg.Server, PSK: []byte(e.cfg.PSK)}
+	if e.cfg.CDNEdge != "" {
+		edge, host, sni := e.cfg.CDNEdge, e.cfg.CDNHost, e.cfg.CDNSNI
+		c.Conn = func() (net.Conn, error) {
+			return cdnfront.Front{EdgeAddr: edge, EdgeSNI: sni, Host: host}.Dial()
+		}
+		return c
+	}
+	if e.cfg.BotLPURL != "" {
+		url, token, base := e.cfg.BotLPURL, e.cfg.BotLPToken, e.cfg.BotLPRoom
+		c.Conn = func() (net.Conn, error) {
+			plat, err := botlp.NewPlatform(url, token)
+			if err != nil {
+				return nil, err
+			}
+			room, err := botlp.NewRoom()
+			if err != nil {
+				return nil, err
+			}
+			return botlp.OpenPipe(botlp.PipeConfig{
+				Platform: plat,
+				Role:     botlp.RoleClient,
+				Room:     room,
+				Control:  botlp.ControlRoom(base),
+				Log:      e.plainLog,
+			}, true)
+		}
+		return c
+	}
 	if e.cfg.DAVURL != "" {
 		// Storage transport: the mailbox supplies the connection;
 		// camouflage is pointless (the transport is already TLS to
@@ -272,7 +319,7 @@ func (e *Engine) RouteDomain(sni, addr string) string {
 // proxied reports whether this engine has an upstream relay at all.
 func (e *Engine) proxied() bool {
 	return e.cfg.Mode == ModeTunnel ||
-		(e.cfg.Mode == ModeVPN && (e.cfg.Server != "" || e.cfg.DAVURL != ""))
+		(e.cfg.Mode == ModeVPN && (e.cfg.Server != "" || e.cfg.DAVURL != "" || e.cfg.CDNEdge != "" || e.cfg.BotLPURL != ""))
 }
 
 func (e *Engine) dial(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -311,6 +358,28 @@ func (e *Engine) dialTunnel(addr string) (net.Conn, error) {
 	}
 	e.mu.Unlock()
 	return c.Dial(target)
+}
+
+// DialPacket opens a UDP tunnel session to addr: the returned conn carries
+// framed datagrams (one Write = one datagram). Used by the VPN layer for
+// flows the route table sends through the relay — QUIC and friends now
+// ride the tunnel instead of being dropped. Storage transports (WebDAV,
+// bot long-poll) carry UDP the same way. Without a relay it dials direct.
+func (e *Engine) DialPacket(ctx context.Context, addr string) (net.Conn, error) {
+	if !e.proxied() {
+		return e.dialDirect(ctx, "udp", addr)
+	}
+	target, err := tunnel.ParseAddress(addr)
+	if err != nil {
+		return nil, err
+	}
+	c := e.tunnelClient()
+	e.mu.Lock()
+	if e.client != nil {
+		c = e.client
+	}
+	e.mu.Unlock()
+	return c.DialUDP(target)
 }
 
 // dialDirect opens a socket straight out, applying the platform socket

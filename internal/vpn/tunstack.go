@@ -69,6 +69,10 @@ type Config struct {
 	// DialVia dials with the egress chosen by RouteSNI. When nil, Dial
 	// is used for every decision except "drop".
 	DialVia func(ctx context.Context, network, addr, via string) (net.Conn, error) `json:"-"`
+	// DialPacket opens a UDP tunnel session (datagram conn) for flows
+	// routed through the relay. When nil, tunnel-policy UDP is dropped
+	// (previous behavior): QUIC clients fall back to TCP.
+	DialPacket func(ctx context.Context, addr string) (net.Conn, error) `json:"-"`
 	// Log receives human readable events.
 	Log func(string)
 	// Up/Down collect relayed bytes for the status screen.
@@ -485,8 +489,27 @@ func (s *Stack) handleUDP(r *udp.ForwarderRequest) {
 			s.relayDNSOverTCP(conn, dst)
 		}()
 	case s.cfg.Egress == EgressTunnel:
-		s.dnsOnce.Do(func() { s.logf("vpn: udp dropped in tunnel mode (only DNS is relayed)") })
-		conn.Close()
+		// UDP rides the tunnel as framed datagrams when the engine
+		// provides a packet dialer; otherwise DNS over TCP remains
+		// the only relayed protocol and the rest is dropped.
+		if s.cfg.DialPacket == nil {
+			s.dnsOnce.Do(func() { s.logf("vpn: udp dropped in tunnel mode (only DNS is relayed)") })
+			conn.Close()
+			return
+		}
+		s.flows.Add(1)
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			defer s.flows.Add(-1)
+			up, derr := s.cfg.DialPacket(s.ctx, dst)
+			if derr != nil {
+				s.logf("vpn: udp %s: %v", dst, derr)
+				conn.Close()
+				return
+			}
+			relayUDP(conn, up)
+		}()
 	case s.cfg.Egress == EgressSplit:
 		switch {
 		case s.cfg.UDPRoute != nil && s.cfg.UDPRoute(id.LocalAddress.String(), dstPort) == "direct":
@@ -502,9 +525,25 @@ func (s *Stack) handleUDP(r *udp.ForwarderRequest) {
 				defer s.flows.Add(-1)
 				relayUDP(conn, up)
 			}()
+		case s.cfg.DialPacket != nil:
+			// Tunnel policy (or an unknown host): QUIC and other
+			// UDP now ride the encrypted tunnel as datagrams.
+			s.flows.Add(1)
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
+				defer s.flows.Add(-1)
+				up, derr := s.cfg.DialPacket(s.ctx, dst)
+				if derr != nil {
+					s.logf("vpn: udp %s: %v", dst, derr)
+					conn.Close()
+					return
+				}
+				relayUDP(conn, up)
+			}()
 		default:
-			// QUIC and friends: a silent drop pushes browsers onto
-			// TCP/TLS, which the tunnel carries.
+			// No packet dialer: a silent drop pushes browsers
+			// onto TCP/TLS, which the tunnel carries.
 			s.dnsOnce.Do(func() { s.logf("vpn: non-whitelisted udp dropped in split mode") })
 			conn.Close()
 		}
