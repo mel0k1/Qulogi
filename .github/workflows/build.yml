@@ -22,6 +22,9 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Cross-compile sanity (android arm64)
+        run: GOOS=android GOARCH=arm64 go build ./...
+
       - name: Build
         run: |
           mkdir -p dist
@@ -45,12 +48,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install gomobile
+        working-directory: .
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          export PATH=$PATH:$(go env GOPATH)/bin
+          export ANDROID_NDK_HOME=$(ls -d ${ANDROID_HOME}/ndk/* | tail -1)
+          gomobile init
+
+      - name: Build gomobile AAR
+        working-directory: .
+        run: |
+          export PATH=$PATH:$(go env GOPATH)/bin
+          export ANDROID_NDK_HOME=$(ls -d ${ANDROID_HOME}/ndk/* | tail -1)
+          gomobile bind -target=android -androidapi 29 \
+            -abi arm64-v8a,armeabi-v7a,x86_64 \
+            -o app/android/app/libs/mobile.aar ./mobile
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
 
-      - name: Restore platforms
-        run: flutter create . --project-name qulogi --platforms android,windows
+      - name: Restore windows platform
+        run: flutter create . --project-name qulogi --platforms windows
 
       - name: Pub get
         run: flutter pub get
