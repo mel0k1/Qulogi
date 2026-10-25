@@ -50,8 +50,11 @@ type fetchResult struct {
 //	{"directory":{...},"source":"https:...","verified":true,"from_cache":false,
 //	 "probes":[{"relay_id":"owl-eu-1","type":"qulogi-tls","addr":"r1:443","rtt_ms":42.1}]}
 //
-// On total failure it falls back to the last good cache; if that fails too,
-// the report carries an "error" field.
+// The community catalog public key is pinned by default: params without a
+// pubkey field verify every catalog against discover.CommunityPubKeyB64.
+// Pass "pubkey":"-" explicitly to disable signature pinning (private
+// mirrors, tests). On total failure it falls back to the last good cache;
+// if that fails too, the report carries an "error" field.
 func FetchDirectory(params string) string {
 	res := fetchResult{}
 	defer func() {
@@ -63,9 +66,13 @@ func FetchDirectory(params string) string {
 	if err := json.Unmarshal([]byte(params), &p); err != nil {
 		return reportJSON(fetchResult{Error: fmt.Sprintf("mobile: bad params: %v", err)})
 	}
+	pubB64 := p.PubKey
+	if pubB64 == "" {
+		pubB64 = discover.CommunityPubKeyB64
+	}
 	var pub ed25519.PublicKey
-	if p.PubKey != "" {
-		key, err := base64.StdEncoding.DecodeString(p.PubKey)
+	if pubB64 != "-" {
+		key, err := base64.StdEncoding.DecodeString(pubB64)
 		if err != nil || len(key) != ed25519.PublicKeySize {
 			return reportJSON(fetchResult{Error: "mobile: bad pubkey"})
 		}

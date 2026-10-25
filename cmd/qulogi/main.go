@@ -27,6 +27,10 @@ func main() {
 		smart        = flag.Bool("smart-split", false, "whitelisted destinations bypass the tunnel")
 		direct       = flag.String("direct-domains", "", "extra direct rules, comma-separated")
 		proxy        = flag.String("proxy-domains", "", "force-through-tunnel rules, comma-separated")
+		dav          = flag.String("dav", "", "WebDAV endpoint (storage transport), e.g. https://webdav.yandex.ru")
+		davUser      = flag.String("dav-user", "", "WebDAV user")
+		davPass      = flag.String("dav-pass", "", "WebDAV password")
+		davMailbox   = flag.String("dav-mailbox", "qulogi", "WebDAV mailbox directory")
 		discoverJSON = flag.String("discover", "", "fetch the relay catalog (params JSON) and print the report, then exit")
 		verbose      = flag.Bool("v", false, "print engine events")
 	)
@@ -37,6 +41,9 @@ func main() {
 		return
 	}
 
+	if *dav != "" && *mode == "dpi" {
+		*mode = "tunnel"
+	}
 	if *server != "" && *mode == "dpi" {
 		*mode = "tunnel"
 	}
@@ -61,6 +68,10 @@ func main() {
 		SmartSplit: *smart,
 		Direct:     splitList(*direct),
 		Proxy:      splitList(*proxy),
+		DAVURL:     *dav,
+		DAVUser:    *davUser,
+		DAVPass:    *davPass,
+		DAVMailbox: *davMailbox,
 		Log:        logf,
 	})
 	if err := e.Start(); err != nil {
@@ -68,7 +79,7 @@ func main() {
 		os.Exit(1)
 	}
 	st := e.Status()
-	fmt.Printf("qulogi on %s (mode %s, camo=%v, smart-split=%v)\n", st.Listen, st.Mode, *camo, *smart)
+	fmt.Printf("qulogi on %s (mode %s, camo=%v, smart-split=%v, dav=%v)\n", st.Listen, st.Mode, *camo, *smart, *dav != "")
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)

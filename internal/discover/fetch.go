@@ -48,10 +48,10 @@ func (s Source) Display() string {
 	}
 }
 
-// DefaultSources are the mirrors wired into the build. They point at the
-// community catalog repository; operators replace or extend this list via
-// app settings. The DNS names are placeholders until a community zone
-// exists — failures are non-fatal, other mirrors still answer.
+// DefaultSources are the mirrors wired into the build. The HTTPS mirrors
+// point at the community catalog repository (raw GitHub and the jsDelivr
+// CDN edge); the DNS names are placeholders until a community zone exists
+// — failures are non-fatal, other mirrors still answer.
 func DefaultSources() []Source {
 	return []Source{
 		{Type: "https", URL: "https://raw.githubusercontent.com/mel0k1/qulogi-catalog/main/catalog.json"},
@@ -61,6 +61,12 @@ func DefaultSources() []Source {
 		{Type: "doh", Name: "_qulogi.qulogi.example.org", URL: "https://dns.google/dns-query"},
 	}
 }
+
+// CommunityPubKeyB64 is the pinned Ed25519 public key of the official
+// community catalog (mel0k1/qulogi-catalog). Clients verify the catalog
+// signature against it before trusting any relay from the wild. The
+// private seed lives with the catalog maintainers only.
+const CommunityPubKeyB64 = "3waP7rtqdJzSUWXV3HO1QXcs0kpP4SGYOWektwMsJsM="
 
 // Result is a fetched and verified directory plus its provenance.
 type Result struct {
