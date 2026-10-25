@@ -40,24 +40,38 @@ func (s *Server) handle(conn net.Conn) {
 	if camo {
 		s.logf("camo handshake from %s", conn.RemoteAddr())
 	}
-	sk, err := serverHandshake(wrapped, s.PSK)
+	if err := AcceptSession(wrapped, s.PSK, func(msg string) { s.logf("%s", msg) }); err != nil {
+		s.logf("session %s: %v", conn.RemoteAddr(), err)
+	}
+}
+
+// AcceptSession runs the server side of one tunnel session over an
+// already-accepted connection (plain TCP or a storage transport such as a
+// WebDAV mailbox): encrypted handshake, target address, bidirectional
+// relay. The connection is consumed and closed.
+func AcceptSession(conn net.Conn, psk []byte, log func(string)) error {
+	defer conn.Close()
+	sk, err := serverHandshake(conn, psk)
 	if err != nil {
-		s.logf("reject %s", conn.RemoteAddr())
-		return
+		return fmt.Errorf("reject: %w", err)
 	}
 	target, err := ReadAddress(sk)
 	if err != nil {
-		return
+		return err
 	}
 	up, err := net.DialTimeout("tcp", target.String(), 10*time.Second)
 	if err != nil {
-		s.logf("dial %s: %v", target.String(), err)
-		return
+		return fmt.Errorf("dial %s: %w", target.String(), err)
 	}
 	defer up.Close()
-	s.logf("open %s", target.String())
+	if log != nil {
+		log("open " + target.String())
+	}
 	relay(sk, up)
-	s.logf("close %s", target.String())
+	if log != nil {
+		log("close " + target.String())
+	}
+	return nil
 }
 
 func relay(a, b net.Conn) {

@@ -16,27 +16,41 @@ type Client struct {
 	PSK     []byte
 	Timeout time.Duration
 	Camo    *transport.ClientOpts
+	// Conn, when set, supplies an already-established transport for every
+	// Dial (storage transports such as WebDAV mailboxes). Camo is ignored
+	// for these connections: they are already TLS to the cloud endpoint.
+	Conn func() (net.Conn, error)
 }
 
 func (c *Client) Dial(target Address) (net.Conn, error) {
-	timeout := c.Timeout
-	if timeout == 0 {
-		timeout = 10 * time.Second
-	}
-	conn, err := net.DialTimeout("tcp", c.Server, timeout)
-	if err != nil {
-		return nil, err
-	}
-	if tc, ok := conn.(*net.TCPConn); ok {
-		_ = tc.SetNoDelay(true)
-	}
-	if c.Camo != nil {
-		cc, cerr := transport.NewCamoClient(conn, *c.Camo)
-		if cerr != nil {
-			conn.Close()
-			return nil, cerr
+	var conn net.Conn
+	if c.Conn != nil {
+		nc, err := c.Conn()
+		if err != nil {
+			return nil, err
 		}
-		conn = cc
+		conn = nc
+	} else {
+		timeout := c.Timeout
+		if timeout == 0 {
+			timeout = 10 * time.Second
+		}
+		nc, err := net.DialTimeout("tcp", c.Server, timeout)
+		if err != nil {
+			return nil, err
+		}
+		if tc, ok := nc.(*net.TCPConn); ok {
+			_ = tc.SetNoDelay(true)
+		}
+		conn = nc
+		if c.Camo != nil {
+			cc, cerr := transport.NewCamoClient(conn, *c.Camo)
+			if cerr != nil {
+				conn.Close()
+				return nil, cerr
+			}
+			conn = cc
+		}
 	}
 	s, err := clientHandshake(conn, c.PSK)
 	if err != nil {

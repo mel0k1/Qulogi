@@ -15,6 +15,15 @@ import (
 	"github.com/mel0k1/qulogi/internal/socks5"
 	"github.com/mel0k1/qulogi/internal/transport"
 	"github.com/mel0k1/qulogi/internal/tunnel"
+	"github.com/mel0k1/qulogi/internal/webdav"
+)
+
+// Per-flow egress decisions shared by the VPN sniffing layer and the
+// engine dialer.
+const (
+	ViaDirect = "direct"
+	ViaTunnel = "tunnel"
+	ViaDrop   = "drop"
 )
 
 type Mode string
@@ -54,6 +63,15 @@ type Config struct {
 	// Protect (Android) marks sockets so they bypass the VPN interface.
 	Protect func(int32) bool `json:"-"`
 	Log     func(string)     `json:"-"`
+
+	// WebDAV storage transport ("device → whitelisted cloud → relay"):
+	// when DAVURL is set, tunnel sessions ride through WebDAV mailboxes
+	// instead of a direct TCP connection to Server. Server may then stay
+	// empty. Latency is seconds — for browsing, RSS and mail.
+	DAVURL     string `json:"dav_url,omitempty"`
+	DAVUser    string `json:"dav_user,omitempty"`
+	DAVPass    string `json:"dav_pass,omitempty"`
+	DAVMailbox string `json:"dav_mailbox,omitempty"`
 }
 
 type Status struct {
@@ -106,7 +124,7 @@ func (e *Engine) Start() error {
 	}
 	switch e.cfg.Mode {
 	case ModeTunnel:
-		if e.cfg.Server == "" {
+		if e.cfg.Server == "" && e.cfg.DAVURL == "" {
 			return errors.New("engine: server required in tunnel mode")
 		}
 		if e.cfg.PSK == "" {
@@ -185,6 +203,13 @@ func (e *Engine) DialContext(ctx context.Context, network, addr string) (net.Con
 
 func (e *Engine) tunnelClient() *tunnel.Client {
 	c := &tunnel.Client{Server: e.cfg.Server, PSK: []byte(e.cfg.PSK)}
+	if e.cfg.DAVURL != "" {
+		// Storage transport: the mailbox supplies the connection;
+		// camouflage is pointless (the transport is already TLS to
+		// the whitelisted cloud).
+		c.Conn = e.davConn
+		return c
+	}
 	if e.cfg.Camo {
 		sni := e.cfg.SNI
 		if sni == "" {
@@ -195,46 +220,97 @@ func (e *Engine) tunnelClient() *tunnel.Client {
 	return c
 }
 
+// davConn opens one WebDAV mailbox session (client role).
+func (e *Engine) davConn() (net.Conn, error) {
+	cl, err := webdav.New(e.cfg.DAVURL, e.cfg.DAVUser, e.cfg.DAVPass)
+	if err != nil {
+		return nil, err
+	}
+	mailbox := e.cfg.DAVMailbox
+	if mailbox == "" {
+		mailbox = "qulogi"
+	}
+	return webdav.OpenPipe(webdav.PipeConfig{
+		Client:  cl,
+		Mailbox: mailbox,
+		Role:    webdav.RoleClient,
+		Log:     e.plainLog,
+	})
+}
+
 // RouteDecision is the per-flow policy used by the VPN transport layer:
 // "direct" (straight out), "tunnel" (through the relay) or "drop".
 // Without a relay everything is direct; with one, the smart split sends
 // whitelisted destinations directly and the rest through the tunnel.
 func (e *Engine) RouteDecision(network, addr string) string {
+	return e.RouteDomain("", addr)
+}
+
+// RouteDomain is the per-flow policy for the sniffing VPN layer: it
+// consults the split table with the SNI hostname extracted from the
+// ClientHello and falls back to the destination address (an IP) when no
+// hostname is known.
+func (e *Engine) RouteDomain(sni, addr string) string {
 	if !e.proxied() {
-		return "direct"
+		return ViaDirect
 	}
 	if !e.cfg.SmartSplit {
-		return "tunnel"
+		return ViaTunnel
 	}
-	if e.route != nil && e.route.Decide(addr) == route.ActionDirect {
-		return "direct"
+	if e.route != nil {
+		target := addr
+		if sni != "" {
+			target = sni
+		}
+		if e.route.Decide(target) == route.ActionDirect {
+			return ViaDirect
+		}
 	}
-	return "tunnel"
+	return ViaTunnel
 }
 
 // proxied reports whether this engine has an upstream relay at all.
 func (e *Engine) proxied() bool {
-	return e.cfg.Mode == ModeTunnel || (e.cfg.Mode == ModeVPN && e.cfg.Server != "")
+	return e.cfg.Mode == ModeTunnel ||
+		(e.cfg.Mode == ModeVPN && (e.cfg.Server != "" || e.cfg.DAVURL != ""))
 }
 
 func (e *Engine) dial(ctx context.Context, network, addr string) (net.Conn, error) {
 	if e.proxied() {
-		if e.cfg.SmartSplit && e.RouteDecision(network, addr) == "direct" {
+		if e.cfg.SmartSplit && e.RouteDecision(network, addr) == ViaDirect {
 			return e.dialDirect(ctx, network, addr)
 		}
-		target, err := tunnel.ParseAddress(addr)
-		if err != nil {
-			return nil, err
-		}
-		c := e.tunnelClient()
-		e.mu.Lock()
-		if e.client != nil {
-			c = e.client
-		}
-		e.mu.Unlock()
-		return c.Dial(target)
+		return e.dialTunnel(addr)
 	}
 	return e.dialDirect(ctx, network, addr)
+}
+
+// DialVia dials with an explicit routing decision made by the sniffing
+// VPN layer ("direct", "tunnel" or "" for the automatic policy).
+func (e *Engine) DialVia(ctx context.Context, network, addr, via string) (net.Conn, error) {
+	switch via {
+	case ViaDirect:
+		return e.dialDirect(ctx, network, addr)
+	case ViaTunnel:
+		return e.dialTunnel(addr)
+	default:
+		return e.dial(ctx, network, addr)
+	}
+}
+
+// dialTunnel dials through the relay regardless of the route table.
+func (e *Engine) dialTunnel(addr string) (net.Conn, error) {
+	target, err := tunnel.ParseAddress(addr)
+	if err != nil {
+		return nil, err
+	}
+	c := e.tunnelClient()
+	e.mu.Lock()
+	if e.client != nil {
+		c = e.client
+	}
+	e.mu.Unlock()
+	return c.Dial(target)
 }
 
 // dialDirect opens a socket straight out, applying the platform socket
