@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/engine_bridge.dart';
@@ -6,6 +8,7 @@ import '../state/engine_controller.dart';
 import '../widgets/stat_card.dart';
 import '../widgets/status_button.dart';
 import 'logs_screen.dart';
+import 'relays_screen.dart';
 import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -17,16 +20,24 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late final EngineController _controller;
+  StreamSubscription<String>? _inviteSub;
   int _page = 0;
 
   @override
   void initState() {
     super.initState();
     _controller = EngineController(createEngineBridge(), SettingsStore());
+    // qulogi:// deep links: switch to the relays tab and run the import
+    // flow registered there.
+    _inviteSub = _controller.invites.listen((link) {
+      setState(() => _page = 1);
+      _controller.applyInvite(link);
+    });
   }
 
   @override
   void dispose() {
+    _inviteSub?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -42,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
             index: _page,
             children: [
               _StatusPage(controller: _controller),
+              RelaysScreen(controller: _controller),
               SettingsScreen(controller: _controller),
               LogsScreen(controller: _controller),
             ],
@@ -54,6 +66,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 icon: Icon(Icons.shield_outlined),
                 selectedIcon: Icon(Icons.shield),
                 label: 'Соединение',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.dns_outlined),
+                selectedIcon: Icon(Icons.dns),
+                label: 'Релеи',
               ),
               NavigationDestination(
                 icon: Icon(Icons.tune),

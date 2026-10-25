@@ -38,6 +38,11 @@ object EngineBus {
         main.post { channel?.invokeMethod("vpnState", state) }
     }
 
+    /// Forwards a qulogi:// deep link (invite) to the Flutter side.
+    fun sendInvite(link: String) {
+        main.post { channel?.invokeMethod("invite", link) }
+    }
+
     fun drain(): List<String> = synchronized(buffer) { buffer.toList() }
 
     val sink: mobile.LogSink = mobile.LogSink { line -> addLog(line ?: "") }

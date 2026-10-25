@@ -18,6 +18,11 @@ class MainActivity : FlutterActivity() {
     private var pendingVpnConfig: String? = null
     private var pendingVpnResult: MethodChannel.Result? = null
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        forwardInvite(intent)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
@@ -40,8 +45,25 @@ class MainActivity : FlutterActivity() {
                 "stopVpn" -> stopVpn(result)
                 "vpnStatus" -> result.success(Mobile.vpnStatus())
                 "drainLogs" -> result.success(EngineBus.drain())
+                "fetchDirectory" -> try {
+                    result.success(Mobile.fetchDirectory(call.arguments<String>()))
+                } catch (e: Exception) {
+                    result.error("discover", e.message, null)
+                }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        forwardInvite(intent)
+    }
+
+    private fun forwardInvite(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme == "qulogi") {
+            EngineBus.sendInvite(data.toString())
         }
     }
 

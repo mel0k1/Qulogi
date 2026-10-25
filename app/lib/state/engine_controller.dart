@@ -37,6 +37,13 @@ class EngineController extends ChangeNotifier {
   late final Future<void> _ready;
   bool _disposed = false;
 
+  /// Platform bridge handle for feature screens (relay discovery).
+  EngineBridge get bridge => _bridge;
+
+  /// qulogi:// invites opened via deep links (Android) — "invite" calls
+  /// from the platform side arrive here.
+  Stream<String> get invites => _bridge.invites;
+
   EngineConfig config = EngineConfig();
   bool running = false;
   bool vpnBlocked = false;
@@ -46,6 +53,17 @@ class EngineController extends ChangeNotifier {
   String? error;
 
   bool get vpnAvailable => config.mode == EngineMode.vpn;
+
+  /// Applies a qulogi:// invite without needing a BuildContext.
+  /// Returns an error string or null on success; the UI layer shows
+  /// snackbars and reloads its state.
+  Future<String?> applyInvite(String link) async {
+    return _inviteHandler?.call(link);
+  }
+
+  set inviteHandler(Future<String?> Function(String link)? handler) =>
+      _inviteHandler = handler;
+  Future<String?> Function(String link)? _inviteHandler;
 
   Future<void> start() async {
     await _ready; // initial load completes before any engine call
@@ -152,6 +170,9 @@ class EngineController extends ChangeNotifier {
     bool? fakeCh,
     bool? autostart,
     bool? killswitch,
+    bool? smartSplit,
+    String? directDomains,
+    String? proxyDomains,
   }) async {
     await _ready;
     if (server != null) config.server = server;
@@ -164,6 +185,9 @@ class EngineController extends ChangeNotifier {
     if (fakeCh != null) config.fakeCh = fakeCh;
     if (autostart != null) config.autostart = autostart;
     if (killswitch != null) config.killswitch = killswitch;
+    if (smartSplit != null) config.smartSplit = smartSplit;
+    if (directDomains != null) config.directDomains = directDomains;
+    if (proxyDomains != null) config.proxyDomains = proxyDomains;
     await _store.save(config);
     notifyListeners();
   }

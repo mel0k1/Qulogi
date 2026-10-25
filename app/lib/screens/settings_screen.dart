@@ -19,6 +19,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _psk;
   late final TextEditingController _listen;
   late final TextEditingController _sni;
+  late final TextEditingController _direct;
+  late final TextEditingController _proxy;
   bool _obscure = true;
   int _split = 0;
   bool _multi = false;
@@ -26,6 +28,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _fakeCh = true;
   bool _autostart = false;
   bool _killswitch = false;
+  bool _smartSplit = true;
 
   static const _sniPresets = ['vkvideo.ru', 'rutube.ru', 'ok.ru', 'dzen.ru'];
 
@@ -37,12 +40,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _psk = TextEditingController(text: cfg.psk);
     _listen = TextEditingController(text: cfg.listen);
     _sni = TextEditingController(text: cfg.sni);
+    _direct = TextEditingController(text: cfg.directDomains);
+    _proxy = TextEditingController(text: cfg.proxyDomains);
     _split = cfg.split;
     _multi = cfg.multiSplit;
     _camo = cfg.camo;
     _fakeCh = cfg.fakeCh;
     _autostart = cfg.autostart;
     _killswitch = cfg.killswitch;
+    _smartSplit = cfg.smartSplit;
   }
 
   @override
@@ -51,6 +57,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _psk.dispose();
     _listen.dispose();
     _sni.dispose();
+    _direct.dispose();
+    _proxy.dispose();
     super.dispose();
   }
 
@@ -66,6 +74,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       fakeCh: _fakeCh,
       autostart: _autostart,
       killswitch: _killswitch,
+      smartSplit: _smartSplit,
+      directDomains: _direct.text,
+      proxyDomains: _proxy.text,
     );
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Настройки сохранены')),
@@ -104,6 +115,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         const SizedBox(height: 24),
         if (usesServer) ..._serverSection(),
+        if (usesServer) ..._splitSection(),
         if (mode == EngineMode.dpi) ..._proxySection(),
         if (mode == EngineMode.dpi) ..._dpiSection(),
         if (Platform.isAndroid) ..._androidSection(),
@@ -194,6 +206,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 'Рассинхронизация DPI: фиктивный ClientHello летит первым отдельным сегментом'),
             value: _fakeCh,
             onChanged: (v) => setState(() => _fakeCh = v),
+          ),
+        ],
+        const SizedBox(height: 24),
+      ];
+
+  List<Widget> _splitSection() => [
+        Text('Умный сплит', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 12),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Белые списки напрямую, остальное — через релей'),
+          subtitle: const Text(
+              'Яндекс, VK, банки и прочие разрешённые ресурсы ходят как обычно: быстрее и без нагрузки на релей'),
+          value: _smartSplit,
+          onChanged: (v) => setState(() => _smartSplit = v),
+        ),
+        if (_smartSplit) ...[
+          TextFormField(
+            controller: _direct,
+            minLines: 2,
+            maxLines: 5,
+            decoration: const InputDecoration(
+              labelText: 'Всегда напрямую',
+              hintText: 'example.ru\n10.0.0.0/8',
+              border: OutlineInputBorder(),
+              helperText: 'Домены или CIDR, по одному в строке — дополнение к встроенному списку',
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _proxy,
+            minLines: 2,
+            maxLines: 5,
+            decoration: const InputDecoration(
+              labelText: 'Всегда через релей',
+              hintText: 'leaky.example.com',
+              border: OutlineInputBorder(),
+              helperText: 'Перекрывает белый список',
+            ),
           ),
         ],
         const SizedBox(height: 24),

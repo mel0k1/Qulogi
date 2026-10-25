@@ -47,6 +47,13 @@ class _FakeBridge implements EngineBridge {
   Future<List<String>> drainLogs() async => const [];
 
   @override
+  Future<Map<String, dynamic>> fetchDirectory(String paramsJson) async =>
+      {'error': 'not implemented in test bridge'};
+
+  @override
+  Stream<String> get invites => const Stream.empty();
+
+  @override
   Stream<String> get logs => _logs.stream;
 
   @override
