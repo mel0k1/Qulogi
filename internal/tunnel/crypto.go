@@ -63,11 +63,11 @@ func newAEAD(key []byte) (cipher.AEAD, error) {
 
 type stream struct {
 	net.Conn
-	tx   cipher.AEAD
-	rx   cipher.AEAD
+	tx    cipher.AEAD
+	rx    cipher.AEAD
 	txSeq uint64
 	rxSeq uint64
-	rbuf []byte
+	rbuf  []byte
 }
 
 func clientHandshake(conn net.Conn, psk []byte) (*stream, error) {
