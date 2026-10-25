@@ -6,12 +6,12 @@ app/.dart_tool/
 app/.flutter-plugins-dependencies
 app/build/
 app/pubspec.lock
-app/android/
+app/android/.gradle/
+app/android/local.properties
+app/android/key.properties
+app/android/app/upload-keystore.jks
 app/ios/
 app/windows/
-app/linux/
-app/macos/
-app/web/
 
 .idea/
 .vscode/

@@ -1,0 +1,43 @@
+plugins {
+    id("com.android.application")
+    id("kotlin-android")
+    id("dev.flutter.flutter-gradle-plugin")
+}
+
+android {
+    namespace = "ru.qulogi.app"
+    compileSdk = 35
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    defaultConfig {
+        applicationId = "ru.qulogi.app"
+        minSdk = 29
+        targetSdk = 35
+        versionCode = 2
+        versionName = "0.2.0"
+    }
+
+    buildTypes {
+        release {
+            // TODO(mel0k1): switch to a real signing config before publishing.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}
+
+dependencies {
+    // gomobile AAR built by CI (gomobile bind -o app/android/app/libs/mobile.aar ./mobile)
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
+}
