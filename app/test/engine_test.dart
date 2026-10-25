@@ -9,7 +9,9 @@ import 'package:qulogi/state/engine_controller.dart';
 class _FakeBridge implements EngineBridge {
   int starts = 0;
   int stops = 0;
+  int vpnStarts = 0;
   final _logs = StreamController<String>.broadcast();
+  final _vpnState = StreamController<VpnState>.broadcast();
 
   @override
   Future<void> start(EngineConfig config) async {
@@ -27,14 +29,35 @@ class _FakeBridge implements EngineBridge {
   }
 
   @override
+  Future<void> startVpn(EngineConfig config) async {
+    vpnStarts++;
+    _vpnState.add(VpnState.connected);
+  }
+
+  @override
+  Future<void> stopVpn(EngineConfig config) async {
+    _vpnState.add(VpnState.stopped);
+  }
+
+  @override
+  Future<VpnSnapshot> vpnStatus() async =>
+      const VpnSnapshot(running: true, flows: 3, egress: 'tunnel');
+
+  @override
+  Future<List<String>> drainLogs() async => const [];
+
+  @override
   Stream<String> get logs => _logs.stream;
+
+  @override
+  Stream<VpnState> get vpnState => _vpnState.stream;
 }
 
 class _MemoryStore extends SettingsStore {
   EngineConfig? lastSaved;
 
   @override
-  Future<EngineConfig> load() async => EngineConfig();
+  Future<EngineConfig> load() async => lastSaved ?? EngineConfig();
 
   @override
   Future<void> save(EngineConfig config) async {
@@ -75,5 +98,45 @@ void main() {
     expect(controller.error, isNotNull);
     await controller.stop();
     controller.dispose();
+  });
+
+  test('vpn start routes through startVpn and tracks state', () async {
+    final bridge = _FakeBridge();
+    final controller = EngineController(bridge, _MemoryStore());
+    await controller.setMode(EngineMode.vpn);
+    await controller.start();
+    expect(bridge.vpnStarts, 1);
+    expect(controller.running, isTrue);
+    await controller.stop();
+    expect(controller.running, isFalse);
+    controller.dispose();
+  });
+
+  test('config json round trip keeps new fields', () {
+    final cfg = EngineConfig(
+      mode: EngineMode.vpn,
+      server: 'vpn.example.org:443',
+      psk: 'secret',
+      camo: true,
+      sni: 'rutube.ru',
+      fakeCh: true,
+      multiSplit: true,
+      autostart: true,
+      killswitch: true,
+    );
+    final restored = EngineConfig.fromJson(cfg.toJson());
+    expect(restored.mode, EngineMode.vpn);
+    expect(restored.server, 'vpn.example.org:443');
+    expect(restored.camo, isTrue);
+    expect(restored.sni, 'rutube.ru');
+    expect(restored.fakeCh, isTrue);
+    expect(restored.multiSplit, isTrue);
+    expect(restored.autostart, isTrue);
+    expect(restored.killswitch, isTrue);
+    // Engine payload carries the Go json tags but not the Android-only keys.
+    final engineJson = cfg.toEngineJson();
+    expect(engineJson.containsKey('autostart'), isFalse);
+    expect(engineJson['multi_split'], isTrue);
+    expect(engineJson['fake_ch'], isTrue);
   });
 }

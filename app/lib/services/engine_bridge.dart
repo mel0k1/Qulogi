@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
-enum EngineMode { tunnel, dpi }
+enum EngineMode { dpi, tunnel, vpn }
 
 class EngineConfig {
   EngineConfig({
@@ -13,6 +13,13 @@ class EngineConfig {
     this.psk = '',
     this.listen = '127.0.0.1:1080',
     this.split = 0,
+    this.multiSplit = false,
+    this.camo = false,
+    this.sni = 'vkvideo.ru',
+    this.fakeCh = true,
+    this.mtu = 8500,
+    this.autostart = false,
+    this.killswitch = false,
   });
 
   EngineMode mode;
@@ -20,22 +27,63 @@ class EngineConfig {
   String psk;
   String listen;
   int split;
+  bool multiSplit;
+  bool camo;
+  String sni;
+  bool fakeCh;
+  int mtu;
+  bool autostart;
+  bool killswitch;
 
-  Map<String, dynamic> toJson() => {
-        'mode': mode == EngineMode.tunnel ? 'tunnel' : 'dpi',
+  /// Fields forwarded to the Go engine. autostart/killswitch are consumed
+  /// by the Android layer only.
+  Map<String, dynamic> toEngineJson() => {
+        'mode': _modeName(mode),
         'server': server,
         'psk': psk,
         'listen': listen,
         'split': split,
+        'multi_split': multiSplit,
+        'camo': camo,
+        'sni': sni,
+        'fake_ch': fakeCh,
+        'mtu': mtu,
+      };
+
+  Map<String, dynamic> toJson() => {
+        ...toEngineJson(),
+        'autostart': autostart,
+        'killswitch': killswitch,
       };
 
   factory EngineConfig.fromJson(Map<String, dynamic> json) => EngineConfig(
-        mode: json['mode'] == 'tunnel' ? EngineMode.tunnel : EngineMode.dpi,
+        mode: _modeFrom(json['mode'] as String?),
         server: json['server'] as String? ?? '',
         psk: json['psk'] as String? ?? '',
         listen: json['listen'] as String? ?? '127.0.0.1:1080',
         split: json['split'] as int? ?? 0,
+        multiSplit: json['multi_split'] as bool? ?? false,
+        camo: json['camo'] as bool? ?? false,
+        sni: json['sni'] as String? ?? 'vkvideo.ru',
+        fakeCh: json['fake_ch'] as bool? ?? true,
+        mtu: json['mtu'] as int? ?? 8500,
+        autostart: json['autostart'] as bool? ?? false,
+        killswitch: json['killswitch'] as bool? ?? false,
       );
+
+  static String _modeName(EngineMode m) =>
+      m == EngineMode.tunnel ? 'tunnel' : (m == EngineMode.vpn ? 'vpn' : 'dpi');
+
+  static EngineMode _modeFrom(String? s) {
+    switch (s) {
+      case 'tunnel':
+        return EngineMode.tunnel;
+      case 'vpn':
+        return EngineMode.vpn;
+      default:
+        return EngineMode.dpi;
+    }
+  }
 }
 
 class EngineStatus {
@@ -62,11 +110,46 @@ class EngineStatus {
       );
 }
 
+class VpnSnapshot {
+  const VpnSnapshot({
+    this.running = false,
+    this.blocked = false,
+    this.flows = 0,
+    this.egress = '',
+  });
+
+  final bool running;
+  final bool blocked;
+  final int flows;
+  final String egress;
+
+  factory VpnSnapshot.fromJson(Map<String, dynamic> json) => VpnSnapshot(
+        running: json['running'] as bool? ?? false,
+        blocked: json['blocked'] as bool? ?? false,
+        flows: json['flows'] as int? ?? 0,
+        egress: json['egress'] as String? ?? '',
+      );
+}
+
+enum VpnState { stopped, connected, blocked, error }
+
 abstract class EngineBridge {
   Future<void> start(EngineConfig config);
   Future<void> stop();
   Future<EngineStatus> status();
+
+  /// Starts the full-device VPN (Android VpnService). Throws
+  /// [UnsupportedError] on platforms without a TUN implementation.
+  Future<void> startVpn(EngineConfig config);
+
+  /// Stops the VPN. With the kill switch enabled the platform keeps the
+  /// TUN interface up in blocking mode instead of tearing it down.
+  Future<void> stopVpn(EngineConfig config);
+  Future<VpnSnapshot> vpnStatus();
+  Future<List<String>> drainLogs();
+
   Stream<String> get logs;
+  Stream<VpnState> get vpnState;
 }
 
 EngineBridge createEngineBridge() {
@@ -79,21 +162,46 @@ EngineBridge createEngineBridge() {
 class MobileEngineBridge implements EngineBridge {
   static const _channel = MethodChannel('qulogi/engine');
   final _logs = StreamController<String>.broadcast();
+  final _vpnState = StreamController<VpnState>.broadcast();
 
   MobileEngineBridge() {
     _channel.setMethodCallHandler((call) async {
-      if (call.method == 'log') {
-        _logs.add(call.arguments as String? ?? '');
+      switch (call.method) {
+        case 'log':
+          _logs.add(call.arguments as String? ?? '');
+        case 'vpnState':
+          _vpnState.add(_stateFrom(call.arguments as String?));
       }
     });
   }
 
+  static VpnState _stateFrom(String? s) {
+    switch (s) {
+      case 'connected':
+        return VpnState.connected;
+      case 'blocked':
+        return VpnState.blocked;
+      case 'error':
+        return VpnState.error;
+      default:
+        return VpnState.stopped;
+    }
+  }
+
   @override
   Future<void> start(EngineConfig config) =>
-      _channel.invokeMethod('start', jsonEncode(config.toJson()));
+      _channel.invokeMethod('start', jsonEncode(config.toEngineJson()));
 
   @override
   Future<void> stop() => _channel.invokeMethod('stop');
+
+  @override
+  Future<void> startVpn(EngineConfig config) =>
+      _channel.invokeMethod('startVpn', jsonEncode(config.toJson()));
+
+  @override
+  Future<void> stopVpn(EngineConfig config) =>
+      _channel.invokeMethod('stopVpn', jsonEncode(config.toJson()));
 
   @override
   Future<EngineStatus> status() async {
@@ -103,12 +211,29 @@ class MobileEngineBridge implements EngineBridge {
   }
 
   @override
+  Future<VpnSnapshot> vpnStatus() async {
+    final raw = await _channel.invokeMethod<String>('vpnStatus');
+    return VpnSnapshot.fromJson(
+        jsonDecode(raw ?? '{}') as Map<String, dynamic>);
+  }
+
+  @override
+  Future<List<String>> drainLogs() async {
+    final list = await _channel.invokeListMethod<dynamic>('drainLogs');
+    return list?.cast<String>() ?? const [];
+  }
+
+  @override
   Stream<String> get logs => _logs.stream;
+
+  @override
+  Stream<VpnState> get vpnState => _vpnState.stream;
 }
 
 class DesktopEngineBridge implements EngineBridge {
   Process? _process;
   final _logs = StreamController<String>.broadcast();
+  final _vpnState = StreamController<VpnState>.broadcast();
 
   @override
   Future<void> start(EngineConfig config) async {
@@ -120,14 +245,20 @@ class DesktopEngineBridge implements EngineBridge {
       config.mode == EngineMode.tunnel ? 'tunnel' : 'dpi',
       '-listen',
       config.listen,
+      '-split',
+      '${config.split}',
+      if (config.multiSplit) '-multi',
       if (config.mode == EngineMode.tunnel) ...[
         '-server',
         config.server,
         '-psk',
         config.psk,
-      ] else ...[
-        '-split',
-        '${config.split}',
+        if (config.camo) ...[
+          '-camo',
+          '-sni',
+          config.sni,
+          if (config.fakeCh) '-fake-ch',
+        ],
       ],
     ];
     final process = await Process.start(bin, args);
@@ -159,5 +290,24 @@ class DesktopEngineBridge implements EngineBridge {
   }
 
   @override
+  Future<void> startVpn(EngineConfig config) async {
+    throw UnsupportedError('VPN mode is available on Android only');
+  }
+
+  @override
+  Future<void> stopVpn(EngineConfig config) async {
+    throw UnsupportedError('VPN mode is available on Android only');
+  }
+
+  @override
+  Future<VpnSnapshot> vpnStatus() async => const VpnSnapshot();
+
+  @override
+  Future<List<String>> drainLogs() async => const [];
+
+  @override
   Stream<String> get logs => _logs.stream;
+
+  @override
+  Stream<VpnState> get vpnState => _vpnState.stream;
 }

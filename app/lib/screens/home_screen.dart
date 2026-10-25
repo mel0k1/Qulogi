@@ -107,16 +107,28 @@ class _StatusPage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              running ? 'Подключено' : 'Отключено',
+              controller.vpnBlocked
+                  ? 'Kill switch: трафик заблокирован'
+                  : running
+                      ? 'Подключено'
+                      : 'Отключено',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
-            if (running)
+            if (running && !controller.vpnBlocked)
               Text(
                 'активно ${_formatUptime(controller.status.uptime)}',
                 style: Theme.of(context)
                     .textTheme
                     .bodyMedium
                     ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            if (controller.vpnBlocked)
+              Text(
+                'новые связи отклоняются, утечек нет',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: scheme.error),
               ),
             if (controller.error != null) ...[
               const SizedBox(height: 12),
@@ -134,6 +146,11 @@ class _StatusPage extends StatelessWidget {
             const SizedBox(height: 24),
             SegmentedButton<EngineMode>(
               segments: const [
+                ButtonSegment(
+                  value: EngineMode.vpn,
+                  icon: Icon(Icons.enhanced_encryption_outlined),
+                  label: Text('VPN'),
+                ),
                 ButtonSegment(
                   value: EngineMode.tunnel,
                   icon: Icon(Icons.vpn_lock_outlined),
@@ -177,7 +194,7 @@ class _StatusPage extends StatelessWidget {
                 ),
               ],
             ),
-            if (controller.config.mode == EngineMode.tunnel &&
+            if (controller.config.mode != EngineMode.dpi &&
                 controller.config.server.isNotEmpty) ...[
               const SizedBox(height: 16),
               Text(
