@@ -138,6 +138,9 @@ Ready-made binaries and APK are built by CI in the Actions tab.
 - [x] Auto-discovery, M2: directory mirrors (HTTPS, DNS TXT, DoH), last-good-mirror cache, `qulogi://` links, QR import and QR sharing of relays, a "Relays" tab in the app, the operator tool `qulogicat`
 - [x] Auto-discovery, M3: the `storage-webdav` transport — tunnel frames through a whitelisted cloud (Yandex Disk and compatible WebDAV): "device → cloud → internet" with no VPS of your own; the community relay catalog [mel0k1/qulogi-catalog](https://github.com/mel0k1/qulogi-catalog) with a key pinned in clients
 - [x] SNI sniffing in the TUN stack: in VPN mode the split matches domains from the ClientHello, not just IPs
+- [x] CDN fronting: the tunnel through a whitelisted CDN edge (TLS with an allowed SNI, Host-routed to the relay behind the same CDN)
+- [x] Bot long-poll: tunnel frames via a whitelisted platform's official API (generic send/poll contract)
+- [x] UDP over the tunnel: QUIC and other UDP ride the relay as framed datagrams
 - [ ] Domain fronting via real CDNs of whitelisted platforms
 - [x] Smart split: whitelisted domains and networks go directly, the tunnel carries only the rest; embedded starter whitelist + user rules (direct/proxy), per-flow routing in VPN mode
 
