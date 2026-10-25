@@ -136,9 +136,19 @@ Ready-made binaries and APK are built by CI in the Actions tab.
 - [ ] UDP flows over the tunnel (QUIC-like frames inside the GCM channel)
 - [x] Transport auto-discovery, M1: Ed25519-signed relay directory, latency probing and automatic selection ([docs/RELAY_DISCOVERY.md](docs/RELAY_DISCOVERY.md))
 - [x] Auto-discovery, M2: directory mirrors (HTTPS, DNS TXT, DoH), last-good-mirror cache, `qulogi://` links, QR import and QR sharing of relays, a "Relays" tab in the app, the operator tool `qulogicat`
-- [ ] Auto-discovery, M3: transport over whitelisted clouds (storage relay) — packet relay without your own VPS
+- [x] Auto-discovery, M3: the `storage-webdav` transport — tunnel frames through a whitelisted cloud (Yandex Disk and compatible WebDAV): "device → cloud → internet" with no VPS of your own; the community relay catalog [mel0k1/qulogi-catalog](https://github.com/mel0k1/qulogi-catalog) with a key pinned in clients
+- [x] SNI sniffing in the TUN stack: in VPN mode the split matches domains from the ClientHello, not just IPs
 - [ ] Domain fronting via real CDNs of whitelisted platforms
 - [x] Smart split: whitelisted domains and networks go directly, the tunnel carries only the rest; embedded starter whitelist + user rules (direct/proxy), per-flow routing in VPN mode
+
+## Download
+
+Prebuilt binaries live in [Releases](https://github.com/mel0k1/Qulogi/releases):
+
+- **Android** — APK (SOCKS5 and VPN modes, relay auto-discovery, smart split, cloud transport);
+- **Windows / Linux / macOS** — `qulogi` (client) and `qulogid` (relay).
+
+Every `v*` tag is built by CI automatically: core binaries for amd64/arm64 and a release APK.
 
 ## Legal notice
 
