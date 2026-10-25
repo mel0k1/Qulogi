@@ -7,7 +7,8 @@ ThemeData buildTheme(Brightness brightness, ColorScheme? dynamic) {
       dynamic ?? ColorScheme.fromSeed(seedColor: seed, brightness: brightness);
   return ThemeData(
     useMaterial3: true,
-    useMaterial3Expressive: true,
+    // Material 3 Expressive: включается параметром useMaterial3Expressive
+    // на свежих каналах Flutter; на стабильном он ещё не объявлен.
     colorScheme: scheme,
     brightness: brightness,
   );

@@ -16,10 +16,16 @@ class EngineController extends ChangeNotifier {
       notifyListeners();
     });
     _vpnSub = _bridge.vpnState.listen(_onVpnState);
-    _store.load().then((config) {
-      this.config = config;
-      notifyListeners();
-    }).catchError((_) => config);
+    unawaited(_loadSettings());
+  }
+
+  Future<void> _loadSettings() async {
+    try {
+      config = await _store.load();
+    } catch (_) {
+      // saved settings are unreadable - keep the defaults
+    }
+    notifyListeners();
   }
 
   final EngineBridge _bridge;

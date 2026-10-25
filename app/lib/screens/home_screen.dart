@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/engine_bridge.dart';
+import '../services/settings_store.dart';
 import '../state/engine_controller.dart';
 import '../widgets/stat_card.dart';
 import '../widgets/status_button.dart';
