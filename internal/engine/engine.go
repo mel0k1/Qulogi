@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mel0k1/qulogi/internal/dpi"
+	"github.com/mel0k1/qulogi/internal/route"
 	"github.com/mel0k1/qulogi/internal/socks5"
 	"github.com/mel0k1/qulogi/internal/transport"
 	"github.com/mel0k1/qulogi/internal/tunnel"
@@ -41,6 +42,15 @@ type Config struct {
 	SNI string `json:"sni,omitempty"`
 	// FakeCH sends the camouflage ClientHello as its own record/segment.
 	FakeCH bool `json:"fake_ch,omitempty"`
+	// SmartSplit enables the smart split: whitelisted destinations
+	// (embedded list + Direct rules, minus Proxy rules) bypass the tunnel
+	// and go straight out. Only meaningful when a server/relay exists.
+	SmartSplit bool `json:"smart_split,omitempty"`
+	// Direct adds always-direct rules (domains or CIDRs) on top of the
+	// embedded whitelist.
+	Direct []string `json:"direct,omitempty"`
+	// Proxy forces rules through the tunnel even when they are whitelisted.
+	Proxy []string `json:"proxy,omitempty"`
 	// Protect (Android) marks sockets so they bypass the VPN interface.
 	Protect func(int32) bool `json:"-"`
 	Log     func(string)     `json:"-"`
@@ -58,7 +68,8 @@ type Status struct {
 }
 
 type Engine struct {
-	cfg Config
+	cfg   Config
+	route *route.Table
 
 	mu       sync.Mutex
 	listener net.Listener
@@ -78,7 +89,13 @@ func New(cfg Config) *Engine {
 	if cfg.Mode == "" {
 		cfg.Mode = ModeDPI
 	}
-	return &Engine{cfg: cfg}
+	e := &Engine{cfg: cfg}
+	if cfg.SmartSplit {
+		e.route = route.Default()
+		e.route.AddDirect(cfg.Direct...)
+		e.route.AddProxy(cfg.Proxy...)
+	}
+	return e
 }
 
 func (e *Engine) Start() error {
@@ -178,8 +195,33 @@ func (e *Engine) tunnelClient() *tunnel.Client {
 	return c
 }
 
+// RouteDecision is the per-flow policy used by the VPN transport layer:
+// "direct" (straight out), "tunnel" (through the relay) or "drop".
+// Without a relay everything is direct; with one, the smart split sends
+// whitelisted destinations directly and the rest through the tunnel.
+func (e *Engine) RouteDecision(network, addr string) string {
+	if !e.proxied() {
+		return "direct"
+	}
+	if !e.cfg.SmartSplit {
+		return "tunnel"
+	}
+	if e.route != nil && e.route.Decide(addr) == route.ActionDirect {
+		return "direct"
+	}
+	return "tunnel"
+}
+
+// proxied reports whether this engine has an upstream relay at all.
+func (e *Engine) proxied() bool {
+	return e.cfg.Mode == ModeTunnel || (e.cfg.Mode == ModeVPN && e.cfg.Server != "")
+}
+
 func (e *Engine) dial(ctx context.Context, network, addr string) (net.Conn, error) {
-	if e.cfg.Mode == ModeTunnel || (e.cfg.Mode == ModeVPN && e.cfg.Server != "") {
+	if e.proxied() {
+		if e.cfg.SmartSplit && e.RouteDecision(network, addr) == "direct" {
+			return e.dialDirect(ctx, network, addr)
+		}
 		target, err := tunnel.ParseAddress(addr)
 		if err != nil {
 			return nil, err
@@ -192,6 +234,12 @@ func (e *Engine) dial(ctx context.Context, network, addr string) (net.Conn, erro
 		e.mu.Unlock()
 		return c.Dial(target)
 	}
+	return e.dialDirect(ctx, network, addr)
+}
+
+// dialDirect opens a socket straight out, applying the platform socket
+// protection on Android so the flow is not routed back into the VPN.
+func (e *Engine) dialDirect(ctx context.Context, network, addr string) (net.Conn, error) {
 	d := &net.Dialer{Timeout: 10 * time.Second}
 	if e.cfg.Protect != nil {
 		protect := e.cfg.Protect
