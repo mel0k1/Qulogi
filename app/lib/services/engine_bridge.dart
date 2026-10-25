@@ -27,6 +27,12 @@ class EngineConfig {
     this.davUser = '',
     this.davPass = '',
     this.davMailbox = 'qulogi',
+    this.cdnEdge = '',
+    this.cdnSni = '',
+    this.cdnHost = '',
+    this.botlpUrl = '',
+    this.botlpToken = '',
+    this.botlpRoom = '',
   });
 
   EngineMode mode;
@@ -61,6 +67,18 @@ class EngineConfig {
   String davPass;
   String davMailbox;
 
+  /// CDN fronting (M4): TLS to a whitelisted CDN edge, Host header routes
+  /// to the relay behind the same CDN.
+  String cdnEdge;
+  String cdnSni;
+  String cdnHost;
+
+  /// Bot long-poll transport (M5): frames via a whitelisted platform API
+  /// (generic send/poll contract, see internal/botlp).
+  String botlpUrl;
+  String botlpToken;
+  String botlpRoom;
+
   /// Fields forwarded to the Go engine. autostart/killswitch are consumed
   /// by the Android layer only.
   Map<String, dynamic> toEngineJson() => {
@@ -82,6 +100,16 @@ class EngineConfig {
           'dav_user': davUser,
           'dav_pass': davPass,
           'dav_mailbox': davMailbox.isEmpty ? 'qulogi' : davMailbox,
+        },
+          if (cdnEdge.isNotEmpty) ...{
+          'cdn_edge': cdnEdge,
+          'cdn_sni': cdnSni,
+          'cdn_host': cdnHost,
+        },
+        if (botlpUrl.isNotEmpty) ...{
+          'botlp_url': botlpUrl,
+          'botlp_token': botlpToken,
+          'botlp_room': botlpRoom.isEmpty ? 'qulogi' : botlpRoom,
         },
       };
 
@@ -111,6 +139,12 @@ class EngineConfig {
         davUser: json['dav_user'] as String? ?? '',
         davPass: json['dav_pass'] as String? ?? '',
         davMailbox: json['dav_mailbox'] as String? ?? 'qulogi',
+          cdnEdge: json['cdn_edge'] as String? ?? '',
+        cdnSni: json['cdn_sni'] as String? ?? '',
+        cdnHost: json['cdn_host'] as String? ?? '',
+        botlpUrl: json['botlp_url'] as String? ?? '',
+        botlpToken: json['botlp_token'] as String? ?? '',
+        botlpRoom: json['botlp_room'] as String? ?? 'qulogi',
       );
 
   static String _modeName(EngineMode m) =>
@@ -330,7 +364,25 @@ class DesktopEngineBridge implements EngineBridge {
         config.proxyDomains,
       ],
       if (config.mode == EngineMode.tunnel) ...[
-        if (config.davUrl.trim().isNotEmpty) ...[
+        if (config.cdnEdge.trim().isNotEmpty) ...[
+          '-cdn',
+          config.cdnEdge.trim(),
+          '-cdn-host',
+          config.cdnHost.trim(),
+          if (config.cdnSni.trim().isNotEmpty) ...[
+            '-cdn-sni',
+            config.cdnSni.trim(),
+          ],
+        ] else if (config.botlpUrl.trim().isNotEmpty) ...[
+          '-botlp',
+          config.botlpUrl.trim(),
+          '-botlp-room',
+          config.botlpRoom.trim().isEmpty ? 'qulogi' : config.botlpRoom.trim(),
+          if (config.botlpToken.trim().isNotEmpty) ...[
+            '-botlp-token',
+            config.botlpToken.trim(),
+          ],
+        ] else if (config.davUrl.trim().isNotEmpty) ...[
           '-dav',
           config.davUrl.trim(),
           '-dav-mailbox',

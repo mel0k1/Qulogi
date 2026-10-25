@@ -177,6 +177,12 @@ class EngineController extends ChangeNotifier {
     String? davUser,
     String? davPass,
     String? davMailbox,
+    String? cdnEdge,
+    String? cdnSni,
+    String? cdnHost,
+    String? botlpUrl,
+    String? botlpToken,
+    String? botlpRoom,
   }) async {
     await _ready;
     if (server != null) config.server = server;
@@ -196,6 +202,12 @@ class EngineController extends ChangeNotifier {
     if (davUser != null) config.davUser = davUser;
     if (davPass != null) config.davPass = davPass;
     if (davMailbox != null) config.davMailbox = davMailbox;
+    if (cdnEdge != null) config.cdnEdge = cdnEdge;
+    if (cdnSni != null) config.cdnSni = cdnSni;
+    if (cdnHost != null) config.cdnHost = cdnHost;
+    if (botlpUrl != null) config.botlpUrl = botlpUrl;
+    if (botlpToken != null) config.botlpToken = botlpToken;
+    if (botlpRoom != null) config.botlpRoom = botlpRoom;
     await _store.save(config);
     notifyListeners();
   }

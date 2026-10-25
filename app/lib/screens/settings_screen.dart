@@ -25,7 +25,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _davUser;
   late final TextEditingController _davPass;
   late final TextEditingController _davMailbox;
+  late final TextEditingController _cdnEdge;
+  late final TextEditingController _cdnSni;
+  late final TextEditingController _cdnHost;
+  late final TextEditingController _botlpUrl;
+  late final TextEditingController _botlpToken;
+  late final TextEditingController _botlpRoom;
   bool _obscure = true;
+  bool _obscureBotlp = true;
   bool _obscureDav = true;
   int _split = 0;
   bool _multi = false;
@@ -51,6 +58,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _davUser = TextEditingController(text: cfg.davUser);
     _davPass = TextEditingController(text: cfg.davPass);
     _davMailbox = TextEditingController(text: cfg.davMailbox);
+    _cdnEdge = TextEditingController(text: cfg.cdnEdge);
+    _cdnSni = TextEditingController(text: cfg.cdnSni);
+    _cdnHost = TextEditingController(text: cfg.cdnHost);
+    _botlpUrl = TextEditingController(text: cfg.botlpUrl);
+    _botlpToken = TextEditingController(text: cfg.botlpToken);
+    _botlpRoom = TextEditingController(text: cfg.botlpRoom);
     _split = cfg.split;
     _multi = cfg.multiSplit;
     _camo = cfg.camo;
@@ -72,6 +85,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _davUser.dispose();
     _davPass.dispose();
     _davMailbox.dispose();
+    _cdnEdge.dispose();
+    _cdnSni.dispose();
+    _cdnHost.dispose();
+    _botlpUrl.dispose();
+    _botlpToken.dispose();
+    _botlpRoom.dispose();
     super.dispose();
   }
 
@@ -94,6 +113,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       davUser: _davUser.text.trim(),
       davPass: _davPass.text,
       davMailbox: _davMailbox.text.trim(),
+      cdnEdge: _cdnEdge.text.trim(),
+      cdnSni: _cdnSni.text.trim(),
+      cdnHost: _cdnHost.text.trim(),
+      botlpUrl: _botlpUrl.text.trim(),
+      botlpToken: _botlpToken.text,
+      botlpRoom: _botlpRoom.text.trim(),
     );
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Настройки сохранены')),
@@ -133,6 +158,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 24),
         if (usesServer) ..._serverSection(),
         if (usesServer) ..._davSection(),
+        if (usesServer) ..._cdnSection(),
+        if (usesServer) ..._botlpSection(),
         if (usesServer) ..._splitSection(),
         if (mode == EngineMode.dpi) ..._proxySection(),
         if (mode == EngineMode.dpi) ..._dpiSection(),
@@ -275,6 +302,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     : Icons.visibility_off_outlined),
                 onPressed: () => setState(() => _obscureDav = !_obscureDav),
               ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 24),
+      ];
+
+  List<Widget> _cdnSection() => [
+        Text('CDN-фронтинг', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _cdnEdge,
+          decoration: const InputDecoration(
+            labelText: 'Край белого CDN',
+            hintText: 'edge.whitelisted-cdn.ru:443',
+            border: OutlineInputBorder(),
+            helperText:
+                'TLS идёт к разрешённому краю CDN, а Host-заголовок заводит соединение на ваш релей за тем же CDN',
+          ),
+        ),
+        if (_cdnEdge.text.trim().isNotEmpty) ...[
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _cdnSni,
+            decoration: const InputDecoration(
+              labelText: 'SNI края (белый домен)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _cdnHost,
+            decoration: const InputDecoration(
+              labelText: 'Имя релея за CDN (Host)',
+              hintText: 'relay.example.net',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+        const SizedBox(height: 24),
+      ];
+
+  List<Widget> _botlpSection() => [
+        Text('Bot long-poll (платформа как шина)',
+            style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _botlpUrl,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(
+            labelText: 'API платформы (send/poll)',
+            hintText: 'https://api.example.org/bot',
+            border: OutlineInputBorder(),
+            helperText:
+                'Кадры туннеля едут сообщениями бота через официальный long-poll API; задержка — секунды',
+          ),
+        ),
+        if (_botlpUrl.text.trim().isNotEmpty) ...[
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _botlpToken,
+            obscureText: _obscureBotlp,
+            decoration: InputDecoration(
+              labelText: 'Токен бота',
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                icon: Icon(_obscureBotlp
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined),
+                onPressed: () =>
+                    setState(() => _obscureBotlp = !_obscureBotlp),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _botlpRoom,
+            decoration: const InputDecoration(
+              labelText: 'Базовая комната',
+              hintText: 'qulogi',
+              border: OutlineInputBorder(),
             ),
           ),
         ],
