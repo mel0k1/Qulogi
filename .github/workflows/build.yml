@@ -3,8 +3,12 @@ name: build
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   core:
@@ -30,10 +34,14 @@ jobs:
           mkdir -p dist
           GOOS=linux   GOARCH=amd64 go build -ldflags "-s -w" -o dist/qulogi-linux-amd64 ./cmd/qulogi
           GOOS=linux   GOARCH=amd64 go build -ldflags "-s -w" -o dist/qulogid-linux-amd64 ./cmd/qulogid
+          GOOS=linux   GOARCH=arm64 go build -ldflags "-s -w" -o dist/qulogi-linux-arm64 ./cmd/qulogi
+          GOOS=linux   GOARCH=arm64 go build -ldflags "-s -w" -o dist/qulogid-linux-arm64 ./cmd/qulogid
           GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o dist/qulogi-windows-amd64.exe ./cmd/qulogi
           GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o dist/qulogid-windows-amd64.exe ./cmd/qulogid
           GOOS=darwin  GOARCH=arm64 go build -ldflags "-s -w" -o dist/qulogi-darwin-arm64 ./cmd/qulogi
           GOOS=darwin  GOARCH=arm64 go build -ldflags "-s -w" -o dist/qulogid-darwin-arm64 ./cmd/qulogid
+          GOOS=darwin  GOARCH=amd64 go build -ldflags "-s -w" -o dist/qulogi-darwin-amd64 ./cmd/qulogi
+          GOOS=darwin  GOARCH=amd64 go build -ldflags "-s -w" -o dist/qulogid-darwin-amd64 ./cmd/qulogid
 
       - uses: actions/upload-artifact@v4
         with:
@@ -95,9 +103,60 @@ jobs:
         run: flutter test
 
       - name: Build APK
-        run: flutter build apk --debug
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk ../qulogi-${{ github.ref_name }}-android.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: qulogi-apk
-          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          path: qulogi-*-android.apk
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [core, app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: qulogi-core
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: qulogi-apk
+          path: dist
+
+      - name: Create release notes
+        run: |
+          cat > dist/RELEASE.md <<'EOF'
+          ## Qulogi
+
+          Инструмент обхода «белых списков»: Flutter M3 + Go (только стандартная библиотека).
+
+          ### Файлы
+          - `qulogi-*-android.apk` — Android-приложение (SOCKS5 / VPN-режим, автопоиск релеев, умный сплит, storage-webdav)
+          - `qulogi-<платформа>` — клиент (локальный SOCKS5)
+          - `qulogid-<платформа>` — релей для вашего сервера
+
+          ### Быстрый старт
+          ```bash
+          qulogid -listen :443 -psk СЕКРЕТ
+          qulogi -server relay.example.net:443 -psk СЕКРЕТ -smart-split
+          ```
+
+          EN: whitelist-bypass tool (Flutter M3 + stdlib-only Go). APK for Android;
+          `qulogi` is the local SOCKS5 client, `qulogid` is the relay. See README.
+          EOF
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: dist/RELEASE.md
+          files: |
+            dist/qulogi-*
+            dist/qulogid-*
+          generate_release_notes: true
