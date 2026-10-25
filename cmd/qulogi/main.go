@@ -28,6 +28,12 @@ func main() {
 		direct       = flag.String("direct-domains", "", "extra direct rules, comma-separated")
 		proxy        = flag.String("proxy-domains", "", "force-through-tunnel rules, comma-separated")
 		dav          = flag.String("dav", "", "WebDAV endpoint (storage transport), e.g. https://webdav.yandex.ru")
+		cdn          = flag.String("cdn", "", "CDN edge host:port (cdn-front transport)")
+		cdnSNI       = flag.String("cdn-sni", "", "whitelisted SNI for the CDN edge")
+		cdnHost      = flag.String("cdn-host", "", "relay hostname behind the CDN (Host header)")
+		botlpURL     = flag.String("botlp", "", "platform long-poll API base (bot-longpoll transport)")
+		botlpToken   = flag.String("botlp-token", "", "platform bot token")
+		botlpRoom    = flag.String("botlp-room", "", "operator base room")
 		davUser      = flag.String("dav-user", "", "WebDAV user")
 		davPass      = flag.String("dav-pass", "", "WebDAV password")
 		davMailbox   = flag.String("dav-mailbox", "qulogi", "WebDAV mailbox directory")
@@ -42,6 +48,12 @@ func main() {
 	}
 
 	if *dav != "" && *mode == "dpi" {
+		*mode = "tunnel"
+	}
+	if *cdn != "" && *mode == "dpi" {
+		*mode = "tunnel"
+	}
+	if *botlpURL != "" && *mode == "dpi" {
 		*mode = "tunnel"
 	}
 	if *server != "" && *mode == "dpi" {
@@ -69,6 +81,12 @@ func main() {
 		Direct:     splitList(*direct),
 		Proxy:      splitList(*proxy),
 		DAVURL:     *dav,
+		CDNEdge:    *cdn,
+		CDNSNI:     *cdnSNI,
+		CDNHost:    *cdnHost,
+		BotLPURL:   *botlpURL,
+		BotLPToken: *botlpToken,
+		BotLPRoom:  *botlpRoom,
 		DAVUser:    *davUser,
 		DAVPass:    *davPass,
 		DAVMailbox: *davMailbox,

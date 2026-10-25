@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mel0k1/qulogi/internal/botlp"
+	"github.com/mel0k1/qulogi/internal/cdnfront"
 	"github.com/mel0k1/qulogi/internal/tunnel"
 	"github.com/mel0k1/qulogi/internal/webdav"
 )
@@ -26,6 +28,11 @@ func main() {
 		davUser    = flag.String("dav-user", "", "WebDAV user")
 		davPass    = flag.String("dav-pass", "", "WebDAV password")
 		davMailbox = flag.String("dav-mailbox", "qulogi", "WebDAV mailbox directory to watch")
+		botlpURL   = flag.String("botlp", "", "platform long-poll API base (serve bot-longpoll sessions)")
+		botlpToken = flag.String("botlp-token", "", "platform bot token")
+		botlpRoom  = flag.String("botlp-room", "", "operator base room")
+		front      = flag.String("front", "", "HTTP listener for cdn-front sessions, e.g. :8443 (TLS terminated by the CDN)")
+		frontPath  = flag.String("front-path", "/qulogi", "tunnel endpoint path for the cdn front")
 		verbose    = flag.Bool("v", false, "print tunnel events")
 	)
 	flag.Parse()
@@ -34,8 +41,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "qulogid: -psk is required")
 		os.Exit(1)
 	}
-	if *listen == "" && *dav == "" {
-		fmt.Fprintln(os.Stderr, "qulogid: nothing to serve: set -listen or -dav")
+	if *listen == "" && *dav == "" && *front == "" && *botlpURL == "" {
+		fmt.Fprintln(os.Stderr, "qulogid: nothing to serve: set -listen, -front, -dav or -botlp")
 		os.Exit(1)
 	}
 
@@ -55,6 +62,39 @@ func main() {
 		srv := &tunnel.Server{Listener: ln, PSK: []byte(*psk), Log: logf}
 		fmt.Printf("qulogid on %s\n", ln.Addr())
 		go srv.Serve()
+	}
+
+	if *front != "" {
+		ln, err := net.Listen("tcp", *front)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "qulogid:", err)
+			os.Exit(1)
+		}
+		fs := &cdnfront.Server{Listener: ln, PSK: []byte(*psk), Path: *frontPath, Log: logf}
+		fmt.Printf("qulogid cdn-front on %s%s\n", ln.Addr(), *frontPath)
+		go fs.Serve()
+	}
+
+	if *botlpURL != "" {
+		plat, err := botlp.NewPlatform(*botlpURL, *botlpToken)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "qulogid:", err)
+			os.Exit(1)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			if err := botlp.ServeRelay(ctx, botlp.RelayConfig{
+				Platform: plat,
+				Room:     *botlpRoom,
+				PSK:      []byte(*psk),
+				Log:      logf,
+			}); err != nil && ctx.Err() == nil {
+				fmt.Fprintln(os.Stderr, "qulogid: botlp relay:", err)
+				os.Exit(1)
+			}
+		}()
+		fmt.Printf("qulogid bot-longpoll room %s on %s\n", *botlpRoom, *botlpURL)
 	}
 
 	if *dav != "" {
