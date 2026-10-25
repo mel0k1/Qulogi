@@ -23,6 +23,10 @@ class EngineConfig {
     this.smartSplit = true,
     this.directDomains = '',
     this.proxyDomains = '',
+    this.davUrl = '',
+    this.davUser = '',
+    this.davPass = '',
+    this.davMailbox = 'qulogi',
   });
 
   EngineMode mode;
@@ -48,6 +52,15 @@ class EngineConfig {
   /// Rules forced through the tunnel even if whitelisted.
   String proxyDomains;
 
+  /// Storage-webdav transport: tunnel frames through a whitelisted cloud
+  /// (Yandex Disk and any compatible WebDAV). When [davUrl] is set the
+  /// relay address is not needed. Latency is seconds — browsing, RSS,
+  /// mail; not for calls.
+  String davUrl;
+  String davUser;
+  String davPass;
+  String davMailbox;
+
   /// Fields forwarded to the Go engine. autostart/killswitch are consumed
   /// by the Android layer only.
   Map<String, dynamic> toEngineJson() => {
@@ -64,6 +77,12 @@ class EngineConfig {
         'smart_split': smartSplit,
         'direct': _splitLines(directDomains),
         'proxy': _splitLines(proxyDomains),
+        if (davUrl.isNotEmpty) ...{
+          'dav_url': davUrl,
+          'dav_user': davUser,
+          'dav_pass': davPass,
+          'dav_mailbox': davMailbox.isEmpty ? 'qulogi' : davMailbox,
+        },
       };
 
   Map<String, dynamic> toJson() => {
@@ -88,6 +107,10 @@ class EngineConfig {
         smartSplit: json['smart_split'] as bool? ?? true,
         directDomains: _joinLines(json['direct'] as List<dynamic>?),
         proxyDomains: _joinLines(json['proxy'] as List<dynamic>?),
+        davUrl: json['dav_url'] as String? ?? '',
+        davUser: json['dav_user'] as String? ?? '',
+        davPass: json['dav_pass'] as String? ?? '',
+        davMailbox: json['dav_mailbox'] as String? ?? 'qulogi',
       );
 
   static String _modeName(EngineMode m) =>
@@ -297,12 +320,34 @@ class DesktopEngineBridge implements EngineBridge {
       '-split',
       '${config.split}',
       if (config.multiSplit) '-multi',
+      if (config.smartSplit) '-smart-split',
+      if (config.directDomains.trim().isNotEmpty) ...[
+        '-direct-domains',
+        config.directDomains,
+      ],
+      if (config.proxyDomains.trim().isNotEmpty) ...[
+        '-proxy-domains',
+        config.proxyDomains,
+      ],
       if (config.mode == EngineMode.tunnel) ...[
-        '-server',
-        config.server,
+        if (config.davUrl.trim().isNotEmpty) ...[
+          '-dav',
+          config.davUrl.trim(),
+          '-dav-mailbox',
+          config.davMailbox.trim().isEmpty ? 'qulogi' : config.davMailbox.trim(),
+          if (config.davUser.trim().isNotEmpty) ...[
+            '-dav-user',
+            config.davUser.trim(),
+            '-dav-pass',
+            config.davPass,
+          ],
+        ] else ...[
+          '-server',
+          config.server,
+        ],
         '-psk',
         config.psk,
-        if (config.camo) ...[
+        if (config.camo && config.davUrl.trim().isEmpty) ...[
           '-camo',
           '-sni',
           config.sni,

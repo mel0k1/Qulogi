@@ -173,6 +173,10 @@ class EngineController extends ChangeNotifier {
     bool? smartSplit,
     String? directDomains,
     String? proxyDomains,
+    String? davUrl,
+    String? davUser,
+    String? davPass,
+    String? davMailbox,
   }) async {
     await _ready;
     if (server != null) config.server = server;
@@ -188,6 +192,10 @@ class EngineController extends ChangeNotifier {
     if (smartSplit != null) config.smartSplit = smartSplit;
     if (directDomains != null) config.directDomains = directDomains;
     if (proxyDomains != null) config.proxyDomains = proxyDomains;
+    if (davUrl != null) config.davUrl = davUrl;
+    if (davUser != null) config.davUser = davUser;
+    if (davPass != null) config.davPass = davPass;
+    if (davMailbox != null) config.davMailbox = davMailbox;
     await _store.save(config);
     notifyListeners();
   }

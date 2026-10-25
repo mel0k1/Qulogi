@@ -21,7 +21,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _sni;
   late final TextEditingController _direct;
   late final TextEditingController _proxy;
+  late final TextEditingController _davUrl;
+  late final TextEditingController _davUser;
+  late final TextEditingController _davPass;
+  late final TextEditingController _davMailbox;
   bool _obscure = true;
+  bool _obscureDav = true;
   int _split = 0;
   bool _multi = false;
   bool _camo = false;
@@ -42,6 +47,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _sni = TextEditingController(text: cfg.sni);
     _direct = TextEditingController(text: cfg.directDomains);
     _proxy = TextEditingController(text: cfg.proxyDomains);
+    _davUrl = TextEditingController(text: cfg.davUrl);
+    _davUser = TextEditingController(text: cfg.davUser);
+    _davPass = TextEditingController(text: cfg.davPass);
+    _davMailbox = TextEditingController(text: cfg.davMailbox);
     _split = cfg.split;
     _multi = cfg.multiSplit;
     _camo = cfg.camo;
@@ -59,6 +68,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _sni.dispose();
     _direct.dispose();
     _proxy.dispose();
+    _davUrl.dispose();
+    _davUser.dispose();
+    _davPass.dispose();
+    _davMailbox.dispose();
     super.dispose();
   }
 
@@ -77,6 +90,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       smartSplit: _smartSplit,
       directDomains: _direct.text,
       proxyDomains: _proxy.text,
+      davUrl: _davUrl.text.trim(),
+      davUser: _davUser.text.trim(),
+      davPass: _davPass.text,
+      davMailbox: _davMailbox.text.trim(),
     );
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Настройки сохранены')),
@@ -115,6 +132,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         const SizedBox(height: 24),
         if (usesServer) ..._serverSection(),
+        if (usesServer) ..._davSection(),
         if (usesServer) ..._splitSection(),
         if (mode == EngineMode.dpi) ..._proxySection(),
         if (mode == EngineMode.dpi) ..._dpiSection(),
@@ -206,6 +224,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 'Рассинхронизация DPI: фиктивный ClientHello летит первым отдельным сегментом'),
             value: _fakeCh,
             onChanged: (v) => setState(() => _fakeCh = v),
+          ),
+        ],
+        const SizedBox(height: 24),
+      ];
+
+  List<Widget> _davSection() => [
+        Text('Транспорт через облако (без VPS)',
+            style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _davUrl,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(
+            labelText: 'WebDAV-сервер',
+            hintText: 'https://webdav.yandex.ru',
+            border: OutlineInputBorder(),
+            helperText:
+                'Заполнив это поле, туннель пойдёт через облако — адрес релея можно не указывать. Задержка — секунды.',
+          ),
+        ),
+        if (_davUrl.text.trim().isNotEmpty) ...[
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _davMailbox,
+            decoration: const InputDecoration(
+              labelText: 'Каталог-почтовый ящик',
+              hintText: 'qulogi',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _davUser,
+            decoration: const InputDecoration(
+              labelText: 'Логин облака',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _davPass,
+            obscureText: _obscureDav,
+            decoration: InputDecoration(
+              labelText: 'Пароль облака',
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                icon: Icon(_obscureDav
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined),
+                onPressed: () => setState(() => _obscureDav = !_obscureDav),
+              ),
+            ),
           ),
         ],
         const SizedBox(height: 24),
