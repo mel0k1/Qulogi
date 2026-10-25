@@ -82,6 +82,9 @@ jobs:
       - name: Restore windows platform
         run: flutter create . --project-name qulogi --platforms windows
 
+      - name: Brand windows icon
+        run: cp assets/brand/qulogi.ico windows/runner/resources/app_icon.ico
+
       - name: Pub get
         run: flutter pub get
 
