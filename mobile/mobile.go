@@ -18,7 +18,7 @@ import (
 	"github.com/mel0k1/qulogi/internal/vpn"
 )
 
-const version = "0.2.0"
+const version = "0.3.0"
 
 var (
 	mu        sync.Mutex
@@ -143,7 +143,7 @@ func StartVPN(fd int32, mtu int32) error {
 		return fmt.Errorf("mobile: vpn already running")
 	}
 	up, down := vpnUp.Counters()
-	st, err := vpn.New(vpn.Config{
+	cfg := vpn.Config{
 		FD:   int(fd),
 		MTU:  uint32(mtu),
 		Dial: vpnUp.DialContext,
@@ -156,7 +156,16 @@ func StartVPN(fd int32, mtu int32) error {
 		Log:    forwardLog,
 		Up:     up,
 		Down:   down,
-	})
+	}
+	// SNI sniffing: with a relay and the smart split enabled, TCP flows
+	// are routed by the hostname from the ClientHello, not just by IP.
+	if vpnConf != nil && (vpnConf.Server != "" || vpnConf.DAVURL != "") && vpnConf.SmartSplit {
+		cfg.RouteSNI = func(sni, dst string) string {
+			return vpnUp.RouteDomain(sni, dst)
+		}
+		cfg.DialVia = vpnUp.DialVia
+	}
+	st, err := vpn.New(cfg)
 	if err != nil {
 		return err
 	}
@@ -166,7 +175,7 @@ func StartVPN(fd int32, mtu int32) error {
 }
 
 func vpnEgress(cfg *engine.Config) string {
-	if cfg == nil || cfg.Server == "" {
+	if cfg == nil || (cfg.Server == "" && cfg.DAVURL == "") {
 		return vpn.EgressDirect
 	}
 	if cfg.SmartSplit {

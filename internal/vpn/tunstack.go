@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mel0k1/qulogi/internal/transport"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -58,6 +59,16 @@ type Config struct {
 	// (unsupported for UDP, becomes a drop) or "drop". When EgressSplit
 	// is on and UDPRoute is nil, all non-DNS UDP is dropped.
 	UDPRoute func(dstHost string, dstPort int) string `json:"-"`
+	// RouteSNI enables TLS ClientHello sniffing on every TCP flow. It
+	// receives the server name extracted from the ClientHello (may be
+	// empty — no TLS seen within the sniff window) plus the IP:port
+	// destination, and returns "direct", "tunnel" or "drop". Sniffing
+	// is what makes the domain-based smart split work in VPN mode,
+	// where flows arrive as bare IP pairs.
+	RouteSNI func(sni, dst string) string `json:"-"`
+	// DialVia dials with the egress chosen by RouteSNI. When nil, Dial
+	// is used for every decision except "drop".
+	DialVia func(ctx context.Context, network, addr, via string) (net.Conn, error) `json:"-"`
 	// Log receives human readable events.
 	Log func(string)
 	// Up/Down collect relayed bytes for the status screen.
@@ -281,6 +292,15 @@ func atomicOr(c *atomic.Int64) int64 {
 	return c.Load()
 }
 
+// Sniff windows: how long to wait for the first byte (apps that wait for
+// a server banner — SSH, SMTP) and for the rest of the ClientHello once
+// bytes started arriving.
+const (
+	sniffIdle  = time.Second
+	sniffChase = 2 * time.Second
+	sniffCap   = 64 << 10
+)
+
 func (s *Stack) handleTCP(r *tcp.ForwarderRequest) {
 	id := r.ID()
 	dst := net.JoinHostPort(id.LocalAddress.String(), strconv.Itoa(int(id.LocalPort)))
@@ -296,6 +316,16 @@ func (s *Stack) handleTCP(r *tcp.ForwarderRequest) {
 	}
 	client := gonet.NewTCPConn(wq, ep)
 
+	if s.cfg.RouteSNI != nil {
+		// Sniffing path: decisions need the first bytes of the flow.
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.serveTCP(client, dst)
+		}()
+		return
+	}
+
 	up, derr := s.cfg.Dial(s.ctx, "tcp", dst)
 	if derr != nil {
 		s.logf("vpn: tcp %s: %v", dst, derr)
@@ -309,6 +339,94 @@ func (s *Stack) handleTCP(r *tcp.ForwarderRequest) {
 		defer s.flows.Add(-1)
 		relayTCP(client, up, s.cfg.Up, s.cfg.Down)
 	}()
+}
+
+// serveTCP sniffs the head of the flow, asks RouteSNI for an egress and
+// splices the rest of the connection.
+func (s *Stack) serveTCP(client net.Conn, dst string) {
+	prefix, sni := s.sniff(client)
+	via := s.cfg.RouteSNI(sni, dst)
+	switch via {
+	case "drop":
+		s.logf("vpn: tcp %s: dropped (%s)", dst, viaLabel(sni))
+		client.Close()
+		return
+	case "direct", "tunnel":
+	default:
+		via = "" // unknown policy → automatic
+	}
+	dial := s.cfg.DialVia
+	if dial == nil {
+		dial = func(ctx context.Context, network, addr, _ string) (net.Conn, error) {
+			return s.cfg.Dial(ctx, network, addr)
+		}
+	}
+	up, derr := dial(s.ctx, "tcp", dst, via)
+	if derr != nil {
+		s.logf("vpn: tcp %s (via %s): %v", dst, viaOr(via, "auto"), derr)
+		client.Close()
+		return
+	}
+	if sni != "" {
+		s.logf("vpn: tcp %s sni=%s via=%s", dst, sni, viaOr(via, "auto"))
+	}
+	if len(prefix) > 0 {
+		if _, err := (countWriter{up, s.cfg.Up}).Write(prefix); err != nil {
+			up.Close()
+			client.Close()
+			return
+		}
+	}
+	s.flows.Add(1)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		defer s.flows.Add(-1)
+		relayTCP(client, up, s.cfg.Up, s.cfg.Down)
+	}()
+}
+
+// sniff reads the head of the connection until a ClientHello is parsed,
+// a non-TLS byte shows up or the windows close. Returns the bytes consumed
+// (to be replayed upstream) and the extracted server name.
+func (s *Stack) sniff(c net.Conn) ([]byte, string) {
+	_ = c.SetReadDeadline(time.Now().Add(sniffIdle))
+	buf := make([]byte, 16<<10)
+	var data []byte
+	for len(data) < sniffCap {
+		n, err := c.Read(buf)
+		if n > 0 {
+			data = append(data, buf[:n]...)
+			sni, isHello, incomplete := transport.ParseClientHello(data)
+			if !incomplete {
+				_ = c.SetReadDeadline(time.Time{})
+				if isHello && sni != "" {
+					return data, sni
+				}
+				return data, ""
+			}
+			_ = c.SetReadDeadline(time.Now().Add(sniffChase))
+		}
+		if err != nil {
+			break // timeout or EOF: forward what we have
+		}
+	}
+	_ = c.SetReadDeadline(time.Time{})
+	return data, ""
+}
+
+func viaLabel(sni string) string {
+	if sni == "" {
+		return "no sni"
+	}
+	return sni
+}
+
+func viaOr(via, fallback string) string {
+	if via == "" {
+		return fallback
+	}
+	return via
 }
 
 func relayTCP(client, up net.Conn, upCount, downCount *atomic.Int64) {
