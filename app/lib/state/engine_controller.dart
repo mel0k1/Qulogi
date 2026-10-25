@@ -16,7 +16,8 @@ class EngineController extends ChangeNotifier {
       notifyListeners();
     });
     _vpnSub = _bridge.vpnState.listen(_onVpnState);
-    unawaited(_loadSettings());
+    _ready = _loadSettings();
+    unawaited(_ready);
   }
 
   Future<void> _loadSettings() async {
@@ -25,7 +26,7 @@ class EngineController extends ChangeNotifier {
     } catch (_) {
       // saved settings are unreadable - keep the defaults
     }
-    notifyListeners();
+    if (!_disposed) notifyListeners();
   }
 
   final EngineBridge _bridge;
@@ -33,6 +34,8 @@ class EngineController extends ChangeNotifier {
   StreamSubscription<String>? _logSub;
   StreamSubscription<VpnState>? _vpnSub;
   Timer? _timer;
+  late final Future<void> _ready;
+  bool _disposed = false;
 
   EngineConfig config = EngineConfig();
   bool running = false;
@@ -45,6 +48,7 @@ class EngineController extends ChangeNotifier {
   bool get vpnAvailable => config.mode == EngineMode.vpn;
 
   Future<void> start() async {
+    await _ready; // initial load completes before any engine call
     error = null;
     vpnBlocked = false;
     try {
@@ -126,6 +130,7 @@ class EngineController extends ChangeNotifier {
   }
 
   Future<void> setMode(EngineMode mode) async {
+    await _ready; // never let a pending load overwrite user changes
     if (running) {
       error = 'Остановите соединение, чтобы сменить режим';
       notifyListeners();
@@ -148,6 +153,7 @@ class EngineController extends ChangeNotifier {
     bool? autostart,
     bool? killswitch,
   }) async {
+    await _ready;
     if (server != null) config.server = server;
     if (psk != null) config.psk = psk;
     if (listen != null) config.listen = listen;
@@ -191,6 +197,7 @@ class EngineController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _timer?.cancel();
     _logSub?.cancel();
     _vpnSub?.cancel();

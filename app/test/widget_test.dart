@@ -8,6 +8,13 @@ void main() {
     await tester.pump();
     expect(find.text('Qulogi'), findsOneWidget);
     expect(find.text('Отключено'), findsOneWidget);
-    expect(find.text('Подключить'), findsOneWidget);
+    // the connect action is a circular icon button carrying a semantics label
+    expect(find.byIcon(Icons.power_settings_new), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is Semantics && w.properties.label == 'Подключить',
+      ),
+      findsOneWidget,
+    );
   });
 }
