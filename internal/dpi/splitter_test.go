@@ -39,36 +39,70 @@ func buildClientHello(name string) []byte {
 	return rec
 }
 
+func reassemble(parts [][]byte) []byte {
+	var out []byte
+	for _, p := range parts {
+		out = append(out, p...)
+	}
+	return out
+}
+
 func TestClientHelloSplit(t *testing.T) {
 	hello := buildClientHello("example.org")
 	want := len(hello) - 4
 
-	got := clientHelloSplit(hello)
-	if got != want {
+	if got := clientHelloSplit(hello); got != want {
 		t.Fatalf("split pos = %d, want %d", got, want)
 	}
 
-	parts := fragments(hello, 0)
+	parts := fragments(hello, Default)
 	if len(parts) != 2 || len(parts[0]) != want {
 		t.Fatalf("parts = %d, first len = %d", len(parts), len(parts[0]))
 	}
-	joined := append(append([]byte{}, parts[0]...), parts[1]...)
-	if !bytes.Equal(joined, hello) {
+	if !bytes.Equal(reassemble(parts), hello) {
 		t.Fatal("fragments do not reassemble")
 	}
 }
 
-func TestFragmentsFallback(t *testing.T) {
+func TestFragmentsStrategies(t *testing.T) {
 	data := []byte("GET / HTTP/1.1")
-	if parts := fragments(data, 0); len(parts) != 1 {
-		t.Fatal("non-tls data must stay intact")
+
+	if parts := fragments(data, Default); len(parts) != 1 {
+		t.Fatal("non-tls data with auto split must stay as one segment")
 	}
-	if parts := fragments(data, 1); len(parts) != 2 || len(parts[0]) != 1 {
+	parts := fragments(data, Strategy{Split: 1})
+	if len(parts) != 2 || len(parts[0]) != 1 {
 		t.Fatal("manual split failed")
 	}
+	if parts := fragments(data, None); len(parts) != 1 || parts[0][0] != 'G' {
+		t.Fatal("None must not split")
+	}
+	if !bytes.Equal(reassemble(fragments(data, Strategy{Split: 5, Multi: true})), data) {
+		t.Fatal("multi split must reassemble")
+	}
 
-	truncated := buildClientHello("example.org")[:30]
-	if p := clientHelloSplit(truncated); p != -1 {
+	hello := buildClientHello("example.org")
+	parts = fragments(hello, Default)
+	if len(parts) != 2 {
+		t.Fatal("auto split of hello failed")
+	}
+	if !bytes.Equal(reassemble(fragments(hello, Strategy{Split: 0, Multi: true})), hello) {
+		t.Fatal("multi split of hello must reassemble")
+	}
+	if p := clientHelloSplit(hello[:30]); p != -1 {
 		t.Fatalf("truncated hello split = %d", p)
+	}
+}
+
+func TestFragmentsMultiThreeSegments(t *testing.T) {
+	hello := buildClientHello("example.org")
+	parts := fragments(hello, Strategy{Split: 0, Multi: true})
+	if len(parts) != 3 {
+		t.Fatalf("multi split: got %d segments, want 3", len(parts))
+	}
+	for i, p := range parts {
+		if len(p) == 0 {
+			t.Fatalf("segment %d is empty", i)
+		}
 	}
 }
