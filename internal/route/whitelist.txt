@@ -1,0 +1,139 @@
+# Qulogi starter whitelist (smart split)
+#
+# One rule per line: a domain suffix (matches the domain and every
+# subdomain) or an IP CIDR. Lines starting with # are comments.
+#
+# Everything on this list is reachable from inside the filtered network
+# as-is, so the smart split sends it directly instead of wasting the
+# relay. Unknown destinations go through the tunnel.
+#
+# This is a hand-curated starter set of the largest whitelisted
+# platforms. Operators can publish fuller lists (for example a dump of
+# the official registry) through the relay catalog; user rules from the
+# app settings are appended after these.
+
+# --- Yandex ---
+ya.ru
+yandex.ru
+yandex.net
+yandex.com
+yandex.by
+yandex.kz
+yandex.uz
+yastatic.net
+yandex.st
+yandexcloud.net
+yandex-team.ru
+kinopoisk.ru
+dzen.ru
+
+# --- VK / Mail.ru group ---
+vk.com
+vk.ru
+vkvideo.ru
+vkontakte.ru
+userapi.com
+vkuser.net
+mail.ru
+list.ru
+bk.ru
+inbox.ru
+imgsmail.ru
+mycdn.me
+ok.ru
+odnoklassniki.ru
+rutube.ru
+rutubelist.ru
+
+# --- Government ---
+gosuslugi.ru
+nalog.ru
+nalog.gov.ru
+mos.ru
+sfr.gov.ru
+pfr.gov.ru
+fssp.gov.ru
+rosreestr.gov.ru
+kremlin.ru
+government.ru
+duma.gov.ru
+mid.ru
+mil.ru
+cbr.gov.ru
+
+# --- Banks and payments ---
+sber.ru
+sberbank.ru
+sberbank.com
+tinkoff.ru
+tbank.ru
+vtb.ru
+gazprombank.ru
+alfabank.ru
+raiffeisen.ru
+sovcombank.ru
+psbank.ru
+otpbank.ru
+mkb.ru
+open.ru
+
+# --- Marketplaces and shops ---
+wildberries.ru
+wb.ru
+wbbasket.ru
+ozon.ru
+avito.ru
+avito.st
+lamoda.ru
+dns-shop.ru
+citilink.ru
+mvideo.ru
+eldorado.ru
+magnit.ru
+perekrestok.ru
+kuper.ru
+samokat.ru
+vkusvill.ru
+
+# --- Telecom ---
+mts.ru
+rt.ru
+rostelecom.ru
+beeline.ru
+megafon.ru
+tele2.ru
+domru.ru
+
+# --- Media and services ---
+rbc.ru
+lenta.ru
+gazeta.ru
+kommersant.ru
+ria.ru
+tass.ru
+1tv.ru
+ntv.ru
+sports.ru
+championat.com
+hh.ru
+habr.com
+habr.ru
+gismeteo.ru
+ivi.ru
+okko.tv
+litres.ru
+
+# --- Major networks (VPN mode sees IPs, not domains) ---
+77.88.8.0/21
+87.250.224.0/19
+5.255.192.0/19
+213.180.192.0/19
+141.8.128.0/18
+95.108.128.0/17
+93.158.128.0/18
+178.154.128.0/17
+87.240.128.0/18
+93.186.224.0/20
+94.100.176.0/20
+217.69.128.0/20
+95.163.0.0/16
