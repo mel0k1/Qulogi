@@ -6,6 +6,8 @@ import (
         "io"
         "net"
         "time"
+
+        "github.com/mel0k1/qulogi/internal/transport"
 )
 
 type Server struct {
@@ -30,7 +32,15 @@ func (s *Server) Serve() error {
 
 func (s *Server) handle(conn net.Conn) {
         defer conn.Close()
-        sk, err := serverHandshake(conn, s.PSK)
+        wrapped, camo, err := transport.WrapServer(conn)
+        if err != nil {
+                s.logf("probe %s: %v", conn.RemoteAddr(), err)
+                return
+        }
+        if camo {
+                s.logf("camo handshake from %s", conn.RemoteAddr())
+        }
+        sk, err := serverHandshake(wrapped, s.PSK)
         if err != nil {
                 s.logf("reject %s", conn.RemoteAddr())
                 return
