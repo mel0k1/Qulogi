@@ -13,6 +13,10 @@ const (
 	atypIPv4   = 1
 	atypDomain = 3
 	atypIPv6   = 4
+	// atypUDP marks a UDP session (0.4.0+): the high bit of the address
+	// type switches the payload from a raw TCP stream to framed datagrams.
+	// Older relays reject such sessions cleanly via the default branch.
+	atypUDPFlag = 0x80
 )
 
 type Address struct {
@@ -37,19 +41,30 @@ func ParseAddress(addr string) (Address, error) {
 }
 
 func WriteAddress(w io.Writer, a Address) error {
+	return WriteAddressMode(w, a, false)
+}
+
+// WriteAddressMode writes the address header, marking the session as UDP
+// when asked. The flag lives in the high bit of the address type byte, so
+// v1 peers parse (and reject) UDP headers without any corruption.
+func WriteAddressMode(w io.Writer, a Address, udp bool) error {
+	flag := byte(0)
+	if udp {
+		flag = atypUDPFlag
+	}
 	head := make([]byte, 0, 262)
 	switch ip := net.ParseIP(a.Host); {
 	case ip != nil && ip.To4() != nil:
-		head = append(head, atypIPv4)
+		head = append(head, flag|atypIPv4)
 		head = append(head, ip.To4()...)
 	case ip != nil:
-		head = append(head, atypIPv6)
+		head = append(head, flag|atypIPv6)
 		head = append(head, ip.To16()...)
 	default:
 		if len(a.Host) > 255 || len(a.Host) == 0 {
 			return errors.New("tunnel: bad host length")
 		}
-		head = append(head, atypDomain, byte(len(a.Host)))
+		head = append(head, flag|atypDomain, byte(len(a.Host)))
 		head = append(head, a.Host...)
 	}
 	var port [2]byte
@@ -60,40 +75,49 @@ func WriteAddress(w io.Writer, a Address) error {
 }
 
 func ReadAddress(r io.Reader) (Address, error) {
+	a, _, err := ReadAddressMode(r)
+	return a, err
+}
+
+// ReadAddressMode parses the address header and reports whether the
+// session carries UDP datagrams instead of a raw TCP stream.
+func ReadAddressMode(r io.Reader) (Address, bool, error) {
 	var atyp [1]byte
 	if _, err := io.ReadFull(r, atyp[:]); err != nil {
-		return Address{}, err
+		return Address{}, false, err
 	}
+	udp := atyp[0]&atypUDPFlag != 0
+	kind := atyp[0] &^ atypUDPFlag
 	var host string
-	switch atyp[0] {
+	switch kind {
 	case atypIPv4:
 		var raw [4]byte
 		if _, err := io.ReadFull(r, raw[:]); err != nil {
-			return Address{}, err
+			return Address{}, false, err
 		}
 		host = net.IP(raw[:]).String()
 	case atypDomain:
 		var l [1]byte
 		if _, err := io.ReadFull(r, l[:]); err != nil {
-			return Address{}, err
+			return Address{}, false, err
 		}
 		raw := make([]byte, l[0])
 		if _, err := io.ReadFull(r, raw); err != nil {
-			return Address{}, err
+			return Address{}, false, err
 		}
 		host = string(raw)
 	case atypIPv6:
 		var raw [16]byte
 		if _, err := io.ReadFull(r, raw[:]); err != nil {
-			return Address{}, err
+			return Address{}, false, err
 		}
 		host = net.IP(raw[:]).String()
 	default:
-		return Address{}, errors.New("tunnel: bad address type")
+		return Address{}, false, errors.New("tunnel: bad address type")
 	}
 	var port [2]byte
 	if _, err := io.ReadFull(r, port[:]); err != nil {
-		return Address{}, err
+		return Address{}, false, err
 	}
-	return Address{Host: host, Port: binary.BigEndian.Uint16(port[:])}, nil
+	return Address{Host: host, Port: binary.BigEndian.Uint16(port[:])}, udp, nil
 }

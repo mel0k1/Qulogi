@@ -55,9 +55,13 @@ func AcceptSession(conn net.Conn, psk []byte, log func(string)) error {
 	if err != nil {
 		return fmt.Errorf("reject: %w", err)
 	}
-	target, err := ReadAddress(sk)
+	target, udp, err := ReadAddressMode(sk)
 	if err != nil {
 		return err
+	}
+	if udp {
+		// Datagram session (0.4.0+): framed UDP in both directions.
+		return relayUDPSession(sk, target, log)
 	}
 	up, err := net.DialTimeout("tcp", target.String(), 10*time.Second)
 	if err != nil {

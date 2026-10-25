@@ -23,6 +23,30 @@ type Client struct {
 }
 
 func (c *Client) Dial(target Address) (net.Conn, error) {
+	sk, err := c.handshake(target, false)
+	if err != nil {
+		return nil, err
+	}
+	return sk, nil
+}
+
+// DialUDP opens a UDP tunnel session to target: framed datagrams in both
+// directions inside one encrypted session. The returned net.Conn preserves
+// datagram boundaries (one Write = one datagram, one Read = one datagram,
+// oversized datagrams truncate), so it slots into any UDP relay loop.
+// Relays older than 0.4.0 reject the session: they do not know the udp
+// address flag.
+func (c *Client) DialUDP(target Address) (net.Conn, error) {
+	sk, err := c.handshake(target, true)
+	if err != nil {
+		return nil, err
+	}
+	return &UDPConn{s: sk}, nil
+}
+
+// handshake connects the transport, runs the encrypted handshake and sends
+// the target address (with the udp flag when asked).
+func (c *Client) handshake(target Address, udp bool) (*stream, error) {
 	var conn net.Conn
 	if c.Conn != nil {
 		nc, err := c.Conn()
@@ -52,14 +76,14 @@ func (c *Client) Dial(target Address) (net.Conn, error) {
 			conn = cc
 		}
 	}
-	s, err := clientHandshake(conn, c.PSK)
+	sk, err := clientHandshake(conn, c.PSK)
 	if err != nil {
 		conn.Close()
 		return nil, err
 	}
-	if err := WriteAddress(s, target); err != nil {
-		s.Close()
+	if err := WriteAddressMode(sk, target, udp); err != nil {
+		sk.Close()
 		return nil, err
 	}
-	return s, nil
+	return sk, nil
 }
