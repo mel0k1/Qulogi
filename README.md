@@ -1,4 +1,8 @@
-# Qulogi
+<div align="center">
+  <img src="docs/assets/owl-card.png" width="120" alt="Сова Qulogi" />
+  <h1>Qulogi</h1>
+  <p><em>Сова видит в темноте. Трафик — сквозь фильтры.</em></p>
+</div>
 
 [Русский](README.md) | [English](README.en.md)
 
@@ -42,6 +46,7 @@ gVisor netstack (internal/vpn) -- TCP/UDP потоки
 - `internal/vpn` — userspace TCP/IP-стек на gVisor netstack поверх TUN: перехват TCP (forwarder) и UDP, DNS-over-TCP через туннель, kill switch (SetBlocked), счётчики трафика.
 - `internal/socks5` — локальный SOCKS5-сервер с подключаемым «насосом» трафика.
 - `internal/engine` — режимы, защитная маршрутизация сокетов (protect), счётчики, статус.
+- `internal/discover` — каталог релеев: подписи Ed25519, TTL, пробник задержек и автоподбор лучшего транспорта. Фундамент «автопоиска» — [docs/RELAY_DISCOVERY.md](docs/RELAY_DISCOVERY.md).
 - `cmd/qulogi` — клиентская консоль, `cmd/qulogid` — серверная.
 - `mobile` — биндинги gomobile: SOCKS5-движок и VPN-движок (`ConfigureVPN`/`StartVPN(fd, mtu)`/`StopVPN`/`SetBlocked`), интерфейсы `Protector` и `LogSink`.
 - `app` — Flutter-клиент: режимы VPN/Туннель/DPI, настройки маскировки, автозапуск и kill switch, журнал.
@@ -129,11 +134,26 @@ gomobile bind -target=android -androidapi 29 \
 - [x] Автозапуск (выключен по умолчанию) и kill switch в приложении
 - [ ] iOS через NetworkExtension — каркас готов, нужен Xcode-таргет и подписка
 - [ ] UDP-потоки поверх туннеля (квик-подобный кадр внутри GCM-канала)
-- [ ] Домашний фронтинг через реальные CDN разрешённых платформ
+- [x] Автопоиск транспорта, M1: каталог релеев с подписями Ed25519, пробник и автоподбор ([docs/RELAY_DISCOVERY.md](docs/RELAY_DISCOVERY.md))
+- [ ] Автопоиск, M2: зеркала каталога (HTTPS, DNS TXT), ссылки `qulogi://` и QR-импорт в приложение
+- [ ] Автопоиск, M3: транспорт через белые облака (storage-relay) — ретрансляция пакетов без своего VPS
+- [ ] Доменный фронтинг через реальные CDN разрешённых платформ
+- [ ] Умный сплит: белые домены идут напрямую, туннель — только для заблокированного
 
 ## Правовое замечание
 
 Проект написан для восстановления доступа к информации. Используйте в соответствии с законодательством вашей страны; авторы не отвечают за применение кода.
+
+## Маскот
+
+Маскот Qulogi — сипуха, нарисованная тушью. Совы охотятся в темноте, слышат то, чего не слышат другие, и летают бесшумно — подходящие таланты для обходчика белых списков.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/owl-ink-white.png">
+    <img src="docs/assets/owl-ink.png" width="180" alt="Сова Qulogi, тушь">
+  </picture>
+</p>
 
 ## Лицензия
 

@@ -1,4 +1,8 @@
-# Qulogi
+<div align="center">
+  <img src="docs/assets/owl-card.png" width="120" alt="Qulogi owl" />
+  <h1>Qulogi</h1>
+  <p><em>An owl sees in the dark. Traffic goes through the filters.</em></p>
+</div>
 
 [Русский](README.md) | [English](README.en.md)
 
@@ -42,6 +46,7 @@ gVisor netstack (internal/vpn) -- TCP/UDP flows
 - `internal/vpn` — userspace TCP/IP stack on gVisor netstack over TUN: TCP forwarding, UDP relay, DNS-over-TCP through the tunnel, kill switch (SetBlocked), traffic counters.
 - `internal/socks5` — local SOCKS5 server with a pluggable traffic pump.
 - `internal/engine` — modes, socket protect routing, counters, status.
+- `internal/discover` — relay directory: Ed25519 signatures, TTL, latency probing and automatic best-transport selection. The foundation of auto-discovery — [docs/RELAY_DISCOVERY.md](docs/RELAY_DISCOVERY.md).
 - `cmd/qulogi` — client console, `cmd/qulogid` — server console.
 - `mobile` — gomobile bindings: the SOCKS5 engine and the VPN engine (`ConfigureVPN`/`StartVPN(fd, mtu)`/`StopVPN`/`SetBlocked`), plus `Protector` and `LogSink` interfaces.
 - `app` — Flutter client: VPN/Tunnel/DPI modes, camouflage settings, auto-start and kill switch, log screen.
@@ -129,11 +134,26 @@ Ready-made binaries and APK are built by CI in the Actions tab.
 - [x] Auto-start (off by default) and kill switch in the app
 - [ ] iOS via NetworkExtension — scaffold ready, needs an Xcode target and a developer account
 - [ ] UDP flows over the tunnel (QUIC-like frames inside the GCM channel)
+- [x] Transport auto-discovery, M1: Ed25519-signed relay directory, latency probing and automatic selection ([docs/RELAY_DISCOVERY.md](docs/RELAY_DISCOVERY.md))
+- [ ] Auto-discovery, M2: directory mirrors (HTTPS, DNS TXT), `qulogi://` links and QR import in the app
+- [ ] Auto-discovery, M3: transport over whitelisted clouds (storage relay) — packet relay without your own VPS
 - [ ] Domain fronting via real CDNs of whitelisted platforms
+- [ ] Smart split: whitelisted domains go directly, the tunnel carries only the blocked rest
 
 ## Legal notice
 
 This project exists to restore access to information. Use it in accordance with the laws of your country; the authors are not responsible for how the code is used.
+
+## Mascot
+
+The Qulogi mascot is a barn owl painted in ink. Owls hunt in the dark, hear what others cannot and fly silently — fitting talents for a whitelist bypasser.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/owl-ink-white.png">
+    <img src="docs/assets/owl-ink.png" width="180" alt="Qulogi owl, ink painting">
+  </picture>
+</p>
 
 ## License
 
