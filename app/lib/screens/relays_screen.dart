@@ -63,13 +63,13 @@ class _RelaysScreenState extends State<RelaysScreen> {
         const SizedBox(height: 24),
         _addSection(),
         const SizedBox(height: 24),
-        Card(
+        const Card(
           child: ListTile(
-            leading: const Icon(Icons.info_outline),
-            title: const Text('Что такое релей'),
-            subtitle: const Text(
+            leading: Icon(Icons.info_outline),
+            title: Text('Что такое релей'),
+            subtitle: Text(
                 'Транзит, через который идёт трафик мимо белых списков. '
-                'Публичные релеи находтся автопоиском, личные распространяются ссылками qulogi:// и QR-кодами.'),
+                'Публичные релеи находятся автопоиском, личные распространяются ссылками qulogi:// и QR-кодами.'),
           ),
         ),
       ],
