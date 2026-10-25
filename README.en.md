@@ -135,10 +135,10 @@ Ready-made binaries and APK are built by CI in the Actions tab.
 - [ ] iOS via NetworkExtension — scaffold ready, needs an Xcode target and a developer account
 - [ ] UDP flows over the tunnel (QUIC-like frames inside the GCM channel)
 - [x] Transport auto-discovery, M1: Ed25519-signed relay directory, latency probing and automatic selection ([docs/RELAY_DISCOVERY.md](docs/RELAY_DISCOVERY.md))
-- [ ] Auto-discovery, M2: directory mirrors (HTTPS, DNS TXT), `qulogi://` links and QR import in the app
+- [x] Auto-discovery, M2: directory mirrors (HTTPS, DNS TXT, DoH), last-good-mirror cache, `qulogi://` links, QR import and QR sharing of relays, a "Relays" tab in the app, the operator tool `qulogicat`
 - [ ] Auto-discovery, M3: transport over whitelisted clouds (storage relay) — packet relay without your own VPS
 - [ ] Domain fronting via real CDNs of whitelisted platforms
-- [ ] Smart split: whitelisted domains go directly, the tunnel carries only the blocked rest
+- [x] Smart split: whitelisted domains and networks go directly, the tunnel carries only the rest; embedded starter whitelist + user rules (direct/proxy), per-flow routing in VPN mode
 
 ## Legal notice
 
