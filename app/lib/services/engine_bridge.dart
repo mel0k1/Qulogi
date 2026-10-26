@@ -33,6 +33,11 @@ class EngineConfig {
     this.botlpUrl = '',
     this.botlpToken = '',
     this.botlpRoom = '',
+    this.botlpKind = '',
+    this.botlpChat = '',
+    this.turnServer = '',
+    this.turnUser = '',
+    this.turnPass = '',
   });
 
   EngineMode mode;
@@ -79,6 +84,18 @@ class EngineConfig {
   String botlpToken;
   String botlpRoom;
 
+  /// Platform adapter for the bot long-poll transport: '' (generic
+  /// contract), 'vk' (VK bot API) or 'max' (Max bot API). [botlpChat]
+  /// is the peer/chat id the bridges deliver frames to.
+  String botlpKind;
+  String botlpChat;
+
+  /// TURN relay transport: tunnel frames through a TURN server
+  /// (RFC 5766 + RFC 6062). The relay address stays in [server].
+  String turnServer;
+  String turnUser;
+  String turnPass;
+
   /// Fields forwarded to the Go engine. autostart/killswitch are consumed
   /// by the Android layer only.
   Map<String, dynamic> toEngineJson() => {
@@ -110,6 +127,14 @@ class EngineConfig {
           'botlp_url': botlpUrl,
           'botlp_token': botlpToken,
           'botlp_room': botlpRoom.isEmpty ? 'qulogi' : botlpRoom,
+          if (botlpKind.isNotEmpty) 'botlp_kind': botlpKind,
+          if (botlpKind == 'vk' || botlpKind == 'max')
+            'botlp_chat': botlpChat,
+        },
+        if (turnServer.isNotEmpty) ...{
+          'turn_server': turnServer,
+          'turn_user': turnUser,
+          'turn_pass': turnPass,
         },
       };
 
@@ -145,6 +170,11 @@ class EngineConfig {
         botlpUrl: json['botlp_url'] as String? ?? '',
         botlpToken: json['botlp_token'] as String? ?? '',
         botlpRoom: json['botlp_room'] as String? ?? 'qulogi',
+        botlpKind: json['botlp_kind'] as String? ?? '',
+        botlpChat: json['botlp_chat'] as String? ?? '',
+        turnServer: json['turn_server'] as String? ?? '',
+        turnUser: json['turn_user'] as String? ?? '',
+        turnPass: json['turn_pass'] as String? ?? '',
       );
 
   static String _modeName(EngineMode m) =>
@@ -381,6 +411,23 @@ class DesktopEngineBridge implements EngineBridge {
           if (config.botlpToken.trim().isNotEmpty) ...[
             '-botlp-token',
             config.botlpToken.trim(),
+          ],
+          if (config.botlpKind.trim().isNotEmpty) ...[
+            '-botlp-kind',
+            config.botlpKind.trim(),
+          ],
+          if (config.botlpChat.trim().isNotEmpty) ...[
+            '-botlp-chat',
+            config.botlpChat.trim(),
+          ],
+        ] else if (config.turnServer.trim().isNotEmpty) ...[
+          '-turn',
+          config.turnServer.trim(),
+          if (config.turnUser.trim().isNotEmpty) ...[
+            '-turn-user',
+            config.turnUser.trim(),
+            '-turn-pass',
+            config.turnPass,
           ],
         ] else if (config.davUrl.trim().isNotEmpty) ...[
           '-dav',

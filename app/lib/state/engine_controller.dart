@@ -4,7 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../services/engine_bridge.dart';
+import '../services/relays.dart';
 import '../services/settings_store.dart';
+
+/// Stages of the one-tap auto connection (catalog → probes → best
+/// transport → engine start).
+enum AutoConnectState { idle, probing, connecting }
 
 class EngineController extends ChangeNotifier {
   EngineController(this._bridge, this._store) {
@@ -52,6 +57,10 @@ class EngineController extends ChangeNotifier {
   List<String> logs = [];
   String? error;
 
+  /// One-tap auto connection state and the chosen transport description.
+  AutoConnectState autoState = AutoConnectState.idle;
+  String autoInfo = '';
+
   bool get vpnAvailable => config.mode == EngineMode.vpn;
 
   /// Applies a qulogi:// invite without needing a BuildContext.
@@ -64,6 +73,110 @@ class EngineController extends ChangeNotifier {
   set inviteHandler(Future<String?> Function(String link)? handler) =>
       _inviteHandler = handler;
   Future<String?> Function(String link)? _inviteHandler;
+
+  /// One-tap auto connection: race the catalog mirrors, probe every
+  /// transport (turn-relay gets a real Allocate round trip), take the
+  /// best candidate, wire it into the config and start the engine.
+  Future<void> autoConnect() async {
+    await _ready;
+    if (running || autoState != AutoConnectState.idle) return;
+    error = null;
+    autoInfo = '';
+    autoState = AutoConnectState.probing;
+    notifyListeners();
+    try {
+      final params = await RelaysStore().fetchParams();
+      final map = await _bridge.fetchDirectory(params);
+      final report = DiscoveryReport.fromJson(map);
+      if (report.error.isNotEmpty) {
+        throw Exception(report.error);
+      }
+      if (report.relays.isEmpty) {
+        throw Exception('в каталоге нет доступных релеев');
+      }
+      final best = report.relays.first;
+      _applyTransport(best);
+      autoState = AutoConnectState.connecting;
+      notifyListeners();
+
+      await start();
+      if (error != null) {
+        throw Exception(error!);
+      }
+      autoInfo = '${best.relayId} · ${best.type} · ${best.rttMs.round()} мс';
+    } catch (e) {
+      error = 'Автоподключение не удалось: ${_cleanError(e)}';
+      autoState = AutoConnectState.idle;
+      notifyListeners();
+      return;
+    }
+    autoState = AutoConnectState.idle;
+    notifyListeners();
+  }
+
+  /// Wires one discovered transport into the config, clearing every other
+  /// transport choice (the engine picks by its own priority otherwise).
+  void _applyTransport(DiscoveredRelay r) {
+    final psk = config.psk;
+    switch (r.type) {
+      case 'qulogi-tls':
+      case 'qulogi-tcp':
+        if (psk.isEmpty) {
+          throw Exception(
+              'для релея ${r.relayId} нужен ключ — импортируйте qulogi://-ссылку');
+        }
+        config.server = r.addr;
+        config.camo = r.type == 'qulogi-tls';
+        if (r.sni.isNotEmpty) config.sni = r.sni;
+      case 'turn-relay':
+        if (psk.isEmpty || r.host.isEmpty) {
+          throw Exception(
+              'для релея ${r.relayId} нужен ключ и адрес релея в каталоге');
+        }
+        config.server = r.host;
+        config.turnServer = r.addr;
+        config.turnUser = '';
+        config.turnPass = '';
+      case 'storage-webdav':
+        config.davUrl = r.addr;
+      case 'bot-longpoll':
+        if (config.botlpToken.isEmpty) {
+          throw Exception(
+              'транспорт ${r.relayId} требует токен платформы в настройках');
+        }
+        config.botlpUrl = r.addr;
+      case 'cdn-front':
+        config.cdnEdge = r.addr;
+        config.cdnHost = r.host;
+        if (r.sni.isNotEmpty) config.cdnSni = r.sni;
+      default:
+        throw Exception('неизвестный тип транспорта: ${r.type}');
+    }
+    // Only one transport class can be active at a time; qulogi-tls/tcp and
+    // turn-relay keep the relay address in server, the rest carry their
+    // own endpoints.
+    if (r.type == 'qulogi-tls' || r.type == 'qulogi-tcp') {
+      config.server = r.addr;
+    } else if (r.type == 'turn-relay') {
+      config.server = r.host;
+    } else {
+      config.server = '';
+    }
+    if (r.type != 'turn-relay') config.turnServer = '';
+    if (r.type != 'storage-webdav') config.davUrl = '';
+    if (r.type != 'bot-longpoll') config.botlpUrl = '';
+    if (r.type != 'cdn-front') config.cdnEdge = '';
+    _store.save(config);
+  }
+
+  static String _cleanError(Object e) {
+    final s = e.toString();
+    if (s.startsWith('Exception: ')) return s.substring('Exception: '.length);
+    if (s.startsWith('Exception(')) {
+      return s.substring('Exception('.length).replaceFirst(RegExp(r'\)$'), '');
+    }
+    return s;
+  }
 
   Future<void> start() async {
     await _ready; // initial load completes before any engine call
@@ -183,6 +296,11 @@ class EngineController extends ChangeNotifier {
     String? botlpUrl,
     String? botlpToken,
     String? botlpRoom,
+    String? botlpKind,
+    String? botlpChat,
+    String? turnServer,
+    String? turnUser,
+    String? turnPass,
   }) async {
     await _ready;
     if (server != null) config.server = server;
@@ -208,6 +326,11 @@ class EngineController extends ChangeNotifier {
     if (botlpUrl != null) config.botlpUrl = botlpUrl;
     if (botlpToken != null) config.botlpToken = botlpToken;
     if (botlpRoom != null) config.botlpRoom = botlpRoom;
+    if (botlpKind != null) config.botlpKind = botlpKind;
+    if (botlpChat != null) config.botlpChat = botlpChat;
+    if (turnServer != null) config.turnServer = turnServer;
+    if (turnUser != null) config.turnUser = turnUser;
+    if (turnPass != null) config.turnPass = turnPass;
     await _store.save(config);
     notifyListeners();
   }

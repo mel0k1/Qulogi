@@ -31,9 +31,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _botlpUrl;
   late final TextEditingController _botlpToken;
   late final TextEditingController _botlpRoom;
+  late final TextEditingController _botlpChat;
+  late final TextEditingController _turnServer;
+  late final TextEditingController _turnUser;
+  late final TextEditingController _turnPass;
   bool _obscure = true;
   bool _obscureBotlp = true;
   bool _obscureDav = true;
+  bool _obscureTurn = true;
+  // Platform adapter for the bot long-poll transport ('' | 'vk' | 'max').
+  String _botlpKind = '';
   int _split = 0;
   bool _multi = false;
   bool _camo = false;
@@ -64,10 +71,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _botlpUrl = TextEditingController(text: cfg.botlpUrl);
     _botlpToken = TextEditingController(text: cfg.botlpToken);
     _botlpRoom = TextEditingController(text: cfg.botlpRoom);
+    _botlpChat = TextEditingController(text: cfg.botlpChat);
+    _turnServer = TextEditingController(text: cfg.turnServer);
+    _turnUser = TextEditingController(text: cfg.turnUser);
+    _turnPass = TextEditingController(text: cfg.turnPass);
     _split = cfg.split;
     _multi = cfg.multiSplit;
     _camo = cfg.camo;
     _fakeCh = cfg.fakeCh;
+    _botlpKind = cfg.botlpKind;
     _autostart = cfg.autostart;
     _killswitch = cfg.killswitch;
     _smartSplit = cfg.smartSplit;
@@ -91,6 +103,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _botlpUrl.dispose();
     _botlpToken.dispose();
     _botlpRoom.dispose();
+    _botlpChat.dispose();
+    _turnServer.dispose();
+    _turnUser.dispose();
+    _turnPass.dispose();
     super.dispose();
   }
 
@@ -119,6 +135,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       botlpUrl: _botlpUrl.text.trim(),
       botlpToken: _botlpToken.text,
       botlpRoom: _botlpRoom.text.trim(),
+      botlpKind: _botlpKind,
+      botlpChat: _botlpChat.text.trim(),
+      turnServer: _turnServer.text.trim(),
+      turnUser: _turnUser.text.trim(),
+      turnPass: _turnPass.text,
     );
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Настройки сохранены')),
@@ -160,6 +181,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (usesServer) ..._davSection(),
         if (usesServer) ..._cdnSection(),
         if (usesServer) ..._botlpSection(),
+        if (usesServer) ..._turnSection(),
         if (usesServer) ..._splitSection(),
         if (mode == EngineMode.dpi) ..._proxySection(),
         if (mode == EngineMode.dpi) ..._dpiSection(),
@@ -382,6 +404,76 @@ class _SettingsScreenState extends State<SettingsScreen> {
               labelText: 'Базовая комната',
               hintText: 'qulogi',
               border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: _botlpKind,
+            decoration: const InputDecoration(
+              labelText: 'Адаптер платформы',
+              border: OutlineInputBorder(),
+              helperText:
+                  'vk/max — официальные Bot API; обе стороны держат РАЗНЫЕ токены ботов в одном чате',
+            ),
+            items: const [
+              DropdownMenuItem(value: '', child: Text('Обычный (send/poll)')),
+              DropdownMenuItem(value: 'vk', child: Text('VK Bot API')),
+              DropdownMenuItem(value: 'max', child: Text('Max Bot API')),
+            ],
+            onChanged: (v) => setState(() => _botlpKind = v ?? ''),
+          ),
+          if (_botlpKind == 'vk' || _botlpKind == 'max') ...[
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _botlpChat,
+              decoration: InputDecoration(
+                labelText: _botlpKind == 'vk' ? 'peer_id чата' : 'chat_id чата',
+                hintText: '2000000001',
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ],
+        const SizedBox(height: 24),
+      ];
+
+  List<Widget> _turnSection() => [
+        Text('TURN-релей (как в WebRTC)',
+            style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _turnServer,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(
+            labelText: 'TURN-сервер',
+            hintText: 'turn.example.org:3478',
+            border: OutlineInputBorder(),
+            helperText:
+                'Туннель едёт TCP-связкой через TURN (RFC 6062); адрес релея — из поля «Сервер туннеля»',
+          ),
+        ),
+        if (_turnServer.text.trim().isNotEmpty) ...[
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _turnUser,
+            decoration: const InputDecoration(
+              labelText: 'Имя пользователя (пусто = анонимно)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _turnPass,
+            obscureText: _obscureTurn,
+            decoration: InputDecoration(
+              labelText: 'Пароль TURN',
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                icon: Icon(_obscureTurn
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined),
+                onPressed: () => setState(() => _obscureTurn = !_obscureTurn),
+              ),
             ),
           ),
         ],

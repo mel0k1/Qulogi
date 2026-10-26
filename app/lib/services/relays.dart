@@ -125,12 +125,17 @@ class DiscoveredRelay {
     required this.addr,
     required this.rttMs,
     this.sni = '',
+    this.host = '',
   });
 
   final String relayId;
   final String type;
   final String addr;
   final String sni;
+
+  /// Secondary address: the relay hostname behind a CDN edge or the peer
+  /// address behind a TURN server.
+  final String host;
   final double rttMs;
 
   factory DiscoveredRelay.fromJson(Map<String, dynamic> json) =>
@@ -139,6 +144,7 @@ class DiscoveredRelay {
         type: json['type'] as String? ?? '',
         addr: json['addr'] as String? ?? '',
         sni: json['sni'] as String? ?? '',
+        host: json['host'] as String? ?? '',
         rttMs: (json['rtt_ms'] as num?)?.toDouble() ?? 0,
       );
 

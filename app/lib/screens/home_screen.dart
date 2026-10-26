@@ -110,6 +110,44 @@ class _StatusPage extends StatelessWidget {
     return '$m мин $s с';
   }
 
+  static Widget _autoConnectButton(
+    BuildContext context,
+    EngineController controller,
+  ) {
+    final busy = controller.autoState != AutoConnectState.idle;
+    final label = switch (controller.autoState) {
+      AutoConnectState.probing => 'Ищу лучший транспорт…',
+      AutoConnectState.connecting => 'Подключаюсь…',
+      AutoConnectState.idle => 'Автоподключение одним тапом',
+    };
+    return Column(
+      children: [
+        FilledButton.tonalIcon(
+          onPressed:
+              controller.running || busy ? null : controller.autoConnect,
+          icon: busy
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.auto_awesome),
+          label: Text(label),
+        ),
+        if (controller.autoInfo.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Chip(
+            avatar: const Icon(Icons.bolt, size: 16),
+            label: Text(
+              'лучший: ${controller.autoInfo}',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final running = controller.running;
@@ -124,6 +162,7 @@ class _StatusPage extends StatelessWidget {
               onTap: running ? controller.stop : controller.start,
             ),
             const SizedBox(height: 12),
+            _autoConnectButton(context, controller),
             Text(
               controller.vpnBlocked
                   ? 'Kill switch: трафик заблокирован'
