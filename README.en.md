@@ -144,7 +144,8 @@ Ready-made binaries and APK are built by CI in the Actions tab.
 - [x] botlp bridges for concrete platforms: VK Bot API and Max Bot API adapters (`botlp-kind`), rooms multiplexed inside one chat's message texts
 - [x] One-tap auto-connect: catalog → probe every transport → the best one by RTT → connect, with zero manual setup
 - [x] UDP over the tunnel: QUIC and other UDP ride the relay as framed datagrams
-- [ ] Domain fronting via real CDNs of whitelisted platforms
+- [x] Domain fronting via real CDNs: the WebSocket upgrade (RFC 6455) — the only upgrade class real CDNs proxy end to end; SNI=Host camouflage as an ordinary site on the CDN network, built-in profiles (Cloudflare, CloudFront, Gcore, Selectel, Yandex Cloud, VK Cloud)
+- [x] Auto-failover to a reserve transport: a degradation monitor in the engine (probe every 15s), switching on failure/degradation and back to the best transport once it recovers; reserves are JSON specs or assembled by auto-connect
 - [x] Smart split: whitelisted domains and networks go directly, the tunnel carries only the rest; embedded starter whitelist + user rules (direct/proxy), per-flow routing in VPN mode
 
 ## Download
