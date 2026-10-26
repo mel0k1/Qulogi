@@ -17,6 +17,7 @@ import (
 	"github.com/mel0k1/qulogi/internal/socks5"
 	"github.com/mel0k1/qulogi/internal/transport"
 	"github.com/mel0k1/qulogi/internal/tunnel"
+	"github.com/mel0k1/qulogi/internal/turnrelay"
 	"github.com/mel0k1/qulogi/internal/webdav"
 )
 
@@ -82,6 +83,11 @@ type Config struct {
 	BotLPURL   string `json:"botlp_url,omitempty"`
 	BotLPToken string `json:"botlp_token,omitempty"`
 	BotLPRoom  string `json:"botlp_room,omitempty"`
+	// BotLPKind selects the platform adapter: "" (generic send/poll
+	// contract), "vk" (VK bot API) or "max" (Max bot API). BotLPChat is
+	// the peer/chat id the bridges deliver frames to.
+	BotLPKind string `json:"botlp_kind,omitempty"`
+	BotLPChat string `json:"botlp_chat,omitempty"`
 
 	// WebDAV storage transport ("device → whitelisted cloud → relay"):
 	// when DAVURL is set, tunnel sessions ride through WebDAV mailboxes
@@ -91,6 +97,15 @@ type Config struct {
 	DAVUser    string `json:"dav_user,omitempty"`
 	DAVPass    string `json:"dav_pass,omitempty"`
 	DAVMailbox string `json:"dav_mailbox,omitempty"`
+
+	// TURN relay transport: tunnel frames ride a TCP peer connection
+	// allocated through a TURN server (RFC 5766 + RFC 6062, see
+	// internal/turnrelay). TURNServer is the TURN endpoint, Server stays
+	// the relay address the allocation connects to. TURN servers exist
+	// for WebRTC, so they are reachable from most filtered networks.
+	TURNServer string `json:"turn_server,omitempty"`
+	TURNUser   string `json:"turn_user,omitempty"`
+	TURNPass   string `json:"turn_pass,omitempty"`
 }
 
 type Status struct {
@@ -108,11 +123,12 @@ type Engine struct {
 	cfg   Config
 	route *route.Table
 
-	mu       sync.Mutex
-	listener net.Listener
-	client   *tunnel.Client
-	running  bool
-	started  time.Time
+	mu         sync.Mutex
+	listener   net.Listener
+	listenAddr string
+	client     *tunnel.Client
+	running    bool
+	started    time.Time
 
 	conns atomic.Int64
 	up    atomic.Int64
@@ -143,11 +159,17 @@ func (e *Engine) Start() error {
 	}
 	switch e.cfg.Mode {
 	case ModeTunnel:
-		if e.cfg.Server == "" && e.cfg.DAVURL == "" && e.cfg.CDNEdge == "" && e.cfg.BotLPURL == "" {
+		if e.cfg.Server == "" && e.cfg.DAVURL == "" && e.cfg.CDNEdge == "" && e.cfg.BotLPURL == "" && e.cfg.TURNServer == "" {
 			return errors.New("engine: server required in tunnel mode")
 		}
 		if e.cfg.PSK == "" {
 			return errors.New("engine: psk required in tunnel mode")
+		}
+		if e.cfg.TURNServer != "" && e.cfg.Server == "" {
+			return errors.New("engine: turn transport needs the relay server address")
+		}
+		if _, _, berr := botlp.BuildAPI(e.cfg.BotLPKind, e.cfg.BotLPURL, e.cfg.BotLPToken, e.cfg.BotLPRoom, e.cfg.BotLPChat); e.cfg.BotLPURL != "" && berr != nil {
+			return berr
 		}
 		e.client = e.tunnelClient()
 	case ModeDPI:
@@ -160,6 +182,8 @@ func (e *Engine) Start() error {
 	if err != nil {
 		return err
 	}
+	// Report the actual bound address: "127.0.0.1:0" in Status is noise.
+	e.listenAddr = ln.Addr().String()
 	srv := &socks5.Server{
 		Listener: ln,
 		Dial:     e.dial,
@@ -183,6 +207,7 @@ func (e *Engine) Stop() {
 	e.mu.Lock()
 	ln := e.listener
 	e.listener = nil
+	e.listenAddr = ""
 	e.mu.Unlock()
 	if ln != nil {
 		ln.Close()
@@ -194,11 +219,16 @@ func (e *Engine) Status() Status {
 	e.mu.Lock()
 	running := e.running
 	started := e.started
+	listenAddr := e.listenAddr
 	e.mu.Unlock()
+	listen := e.cfg.Listen
+	if listenAddr != "" {
+		listen = listenAddr
+	}
 	st := Status{
 		Running:     running,
 		Mode:        string(e.cfg.Mode),
-		Listen:      e.cfg.Listen,
+		Listen:      listen,
 		Server:      e.cfg.Server,
 		Connections: e.conns.Load(),
 		BytesUp:     e.up.Load(),
@@ -231,20 +261,20 @@ func (e *Engine) tunnelClient() *tunnel.Client {
 	}
 	if e.cfg.BotLPURL != "" {
 		url, token, base := e.cfg.BotLPURL, e.cfg.BotLPToken, e.cfg.BotLPRoom
+		kind, chat := e.cfg.BotLPKind, e.cfg.BotLPChat
+		// Validation ran in Start(); the same adapter is reused here.
+		api, chunk, _ := botlp.BuildAPI(kind, url, token, base, chat)
 		c.Conn = func() (net.Conn, error) {
-			plat, err := botlp.NewPlatform(url, token)
-			if err != nil {
-				return nil, err
-			}
 			room, err := botlp.NewRoom()
 			if err != nil {
 				return nil, err
 			}
 			return botlp.OpenPipe(botlp.PipeConfig{
-				Platform: plat,
+				Platform: api,
 				Role:     botlp.RoleClient,
 				Room:     room,
 				Control:  botlp.ControlRoom(base),
+				Chunk:    chunk,
 				Log:      e.plainLog,
 			}, true)
 		}
@@ -255,6 +285,18 @@ func (e *Engine) tunnelClient() *tunnel.Client {
 		// camouflage is pointless (the transport is already TLS to
 		// the whitelisted cloud).
 		c.Conn = e.davConn
+		return c
+	}
+	if e.cfg.TURNServer != "" {
+		turnAddr, user, pass, peer := e.cfg.TURNServer, e.cfg.TURNUser, e.cfg.TURNPass, e.cfg.Server
+		c.Conn = func() (net.Conn, error) {
+			return (&turnrelay.Client{
+				Server: turnAddr,
+				User:   user,
+				Pass:   pass,
+				Log:    e.plainLog,
+			}).Dial(peer)
+		}
 		return c
 	}
 	if e.cfg.Camo {
@@ -319,7 +361,7 @@ func (e *Engine) RouteDomain(sni, addr string) string {
 // proxied reports whether this engine has an upstream relay at all.
 func (e *Engine) proxied() bool {
 	return e.cfg.Mode == ModeTunnel ||
-		(e.cfg.Mode == ModeVPN && (e.cfg.Server != "" || e.cfg.DAVURL != "" || e.cfg.CDNEdge != "" || e.cfg.BotLPURL != ""))
+		(e.cfg.Mode == ModeVPN && (e.cfg.Server != "" || e.cfg.DAVURL != "" || e.cfg.CDNEdge != "" || e.cfg.BotLPURL != "" || e.cfg.TURNServer != ""))
 }
 
 func (e *Engine) dial(ctx context.Context, network, addr string) (net.Conn, error) {

@@ -18,7 +18,7 @@ import (
 	"github.com/mel0k1/qulogi/internal/vpn"
 )
 
-const version = "0.4.0"
+const version = "0.5.0"
 
 var (
 	mu        sync.Mutex
@@ -159,7 +159,7 @@ func StartVPN(fd int32, mtu int32) error {
 	}
 	// SNI sniffing: with a relay and the smart split enabled, TCP flows
 	// are routed by the hostname from the ClientHello, not just by IP.
-	if vpnConf != nil && (vpnConf.Server != "" || vpnConf.DAVURL != "" || vpnConf.CDNEdge != "" || vpnConf.BotLPURL != "") && vpnConf.SmartSplit {
+	if vpnConf != nil && hasRelay(vpnConf) && vpnConf.SmartSplit {
 		cfg.RouteSNI = func(sni, dst string) string {
 			return vpnUp.RouteDomain(sni, dst)
 		}
@@ -167,7 +167,7 @@ func StartVPN(fd int32, mtu int32) error {
 	}
 	// UDP over the tunnel: QUIC and friends ride the relay as framed
 	// datagrams instead of being dropped.
-	if vpnConf != nil && (vpnConf.Server != "" || vpnConf.DAVURL != "" || vpnConf.CDNEdge != "" || vpnConf.BotLPURL != "") {
+	if vpnConf != nil && hasRelay(vpnConf) {
 		cfg.DialPacket = vpnUp.DialPacket
 	}
 	st, err := vpn.New(cfg)
@@ -180,13 +180,20 @@ func StartVPN(fd int32, mtu int32) error {
 }
 
 func vpnEgress(cfg *engine.Config) string {
-	if cfg == nil || (cfg.Server == "" && cfg.DAVURL == "") {
+	if cfg == nil || (cfg.Server == "" && cfg.DAVURL == "" && cfg.CDNEdge == "" && cfg.BotLPURL == "" && cfg.TURNServer == "") {
 		return vpn.EgressDirect
 	}
 	if cfg.SmartSplit {
 		return vpn.EgressSplit
 	}
 	return vpn.EgressTunnel
+}
+
+// hasRelay reports whether the config carries an upstream relay of any
+// transport class.
+func hasRelay(cfg *engine.Config) bool {
+	return cfg.Server != "" || cfg.DAVURL != "" || cfg.CDNEdge != "" ||
+		cfg.BotLPURL != "" || cfg.TURNServer != ""
 }
 
 // StopVPN halts the netstack and releases the TUN device.

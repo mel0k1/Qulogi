@@ -34,6 +34,11 @@ func main() {
 		botlpURL     = flag.String("botlp", "", "platform long-poll API base (bot-longpoll transport)")
 		botlpToken   = flag.String("botlp-token", "", "platform bot token")
 		botlpRoom    = flag.String("botlp-room", "", "operator base room")
+		botlpKind    = flag.String("botlp-kind", "", "platform adapter: generic (default), vk or max")
+		botlpChat    = flag.String("botlp-chat", "", "peer/chat id for the vk/max adapters")
+		turn         = flag.String("turn", "", "TURN server host:port (turn-relay transport)")
+		turnUser     = flag.String("turn-user", "", "TURN username (empty = anonymous)")
+		turnPass     = flag.String("turn-pass", "", "TURN password")
 		davUser      = flag.String("dav-user", "", "WebDAV user")
 		davPass      = flag.String("dav-pass", "", "WebDAV password")
 		davMailbox   = flag.String("dav-mailbox", "qulogi", "WebDAV mailbox directory")
@@ -54,6 +59,9 @@ func main() {
 		*mode = "tunnel"
 	}
 	if *botlpURL != "" && *mode == "dpi" {
+		*mode = "tunnel"
+	}
+	if *turn != "" && *mode == "dpi" {
 		*mode = "tunnel"
 	}
 	if *server != "" && *mode == "dpi" {
@@ -87,6 +95,11 @@ func main() {
 		BotLPURL:   *botlpURL,
 		BotLPToken: *botlpToken,
 		BotLPRoom:  *botlpRoom,
+		BotLPKind:  *botlpKind,
+		BotLPChat:  *botlpChat,
+		TURNServer: *turn,
+		TURNUser:   *turnUser,
+		TURNPass:   *turnPass,
 		DAVUser:    *davUser,
 		DAVPass:    *davPass,
 		DAVMailbox: *davMailbox,
