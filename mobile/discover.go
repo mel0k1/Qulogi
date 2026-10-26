@@ -36,6 +36,7 @@ type probeRow struct {
 	// Host carries the transport's secondary address: the relay hostname
 	// behind a CDN edge or the peer address behind a TURN server.
 	Host  string  `json:"host,omitempty"`
+	WS    bool    `json:"ws,omitempty"`
 	RTTMS float64 `json:"rtt_ms"`
 }
 
@@ -122,6 +123,7 @@ func FetchDirectory(params string) string {
 			Addr:    pr.Transport.Addr,
 			SNI:     pr.Transport.SNI,
 			Host:    pr.Transport.Host,
+			WS:      pr.Transport.WS,
 			RTTMS:   float64(pr.RTT) / float64(time.Millisecond),
 		})
 	}

@@ -18,7 +18,7 @@ import (
 	"github.com/mel0k1/qulogi/internal/vpn"
 )
 
-const version = "0.5.0"
+const version = "0.6.0"
 
 var (
 	mu        sync.Mutex
@@ -180,7 +180,7 @@ func StartVPN(fd int32, mtu int32) error {
 }
 
 func vpnEgress(cfg *engine.Config) string {
-	if cfg == nil || (cfg.Server == "" && cfg.DAVURL == "" && cfg.CDNEdge == "" && cfg.BotLPURL == "" && cfg.TURNServer == "") {
+	if cfg == nil || !hasRelay(cfg) {
 		return vpn.EgressDirect
 	}
 	if cfg.SmartSplit {
@@ -190,10 +190,10 @@ func vpnEgress(cfg *engine.Config) string {
 }
 
 // hasRelay reports whether the config carries an upstream relay of any
-// transport class.
+// transport class, including failover reserves.
 func hasRelay(cfg *engine.Config) bool {
 	return cfg.Server != "" || cfg.DAVURL != "" || cfg.CDNEdge != "" ||
-		cfg.BotLPURL != "" || cfg.TURNServer != ""
+		cfg.BotLPURL != "" || cfg.TURNServer != "" || len(cfg.Fallbacks) > 0
 }
 
 // StopVPN halts the netstack and releases the TUN device.
@@ -201,9 +201,13 @@ func StopVPN() {
 	mu.Lock()
 	st := vpnStack
 	vpnStack = nil
+	e := vpnUp
 	mu.Unlock()
 	if st != nil {
 		st.Stop()
+	}
+	if e != nil {
+		e.Stop() // also stops the failover monitor
 	}
 }
 

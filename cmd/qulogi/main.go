@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -31,6 +32,7 @@ func main() {
 		cdn          = flag.String("cdn", "", "CDN edge host:port (cdn-front transport)")
 		cdnSNI       = flag.String("cdn-sni", "", "whitelisted SNI for the CDN edge")
 		cdnHost      = flag.String("cdn-host", "", "relay hostname behind the CDN (Host header)")
+		cdnWS        = flag.Bool("cdn-ws", false, "RFC 6455 WebSocket upgrade for real CDN networks")
 		botlpURL     = flag.String("botlp", "", "platform long-poll API base (bot-longpoll transport)")
 		botlpToken   = flag.String("botlp-token", "", "platform bot token")
 		botlpRoom    = flag.String("botlp-room", "", "operator base room")
@@ -39,12 +41,16 @@ func main() {
 		turn         = flag.String("turn", "", "TURN server host:port (turn-relay transport)")
 		turnUser     = flag.String("turn-user", "", "TURN username (empty = anonymous)")
 		turnPass     = flag.String("turn-pass", "", "TURN password")
+		fallbacks    fallbackList
+		noFailover   = flag.Bool("no-failover", false, "disable the failover monitor and reserve transports")
+		probeSecs    = flag.Int("probe-secs", 0, "failover probe interval in seconds (0 = 15)")
 		davUser      = flag.String("dav-user", "", "WebDAV user")
 		davPass      = flag.String("dav-pass", "", "WebDAV password")
 		davMailbox   = flag.String("dav-mailbox", "qulogi", "WebDAV mailbox directory")
 		discoverJSON = flag.String("discover", "", "fetch the relay catalog (params JSON) and print the report, then exit")
 		verbose      = flag.Bool("v", false, "print engine events")
 	)
+	flag.Var(&fallbacks, "fallback", "reserve transport as JSON (kind tcp|cdn|botlp|dav|turn), repeatable")
 	flag.Parse()
 
 	if *discoverJSON != "" {
@@ -67,6 +73,9 @@ func main() {
 	if *server != "" && *mode == "dpi" {
 		*mode = "tunnel"
 	}
+	if len(fallbacks) > 0 && *mode == "dpi" {
+		*mode = "tunnel"
+	}
 
 	logf := func(string) {}
 	if *verbose {
@@ -76,34 +85,38 @@ func main() {
 	}
 
 	e := engine.New(engine.Config{
-		Mode:       engine.Mode(*mode),
-		Listen:     *listen,
-		Server:     *server,
-		PSK:        *psk,
-		Split:      *split,
-		Multi:      *multi,
-		Camo:       *camo,
-		SNI:        *sni,
-		FakeCH:     *fakeCH,
-		SmartSplit: *smart,
-		Direct:     splitList(*direct),
-		Proxy:      splitList(*proxy),
-		DAVURL:     *dav,
-		CDNEdge:    *cdn,
-		CDNSNI:     *cdnSNI,
-		CDNHost:    *cdnHost,
-		BotLPURL:   *botlpURL,
-		BotLPToken: *botlpToken,
-		BotLPRoom:  *botlpRoom,
-		BotLPKind:  *botlpKind,
-		BotLPChat:  *botlpChat,
-		TURNServer: *turn,
-		TURNUser:   *turnUser,
-		TURNPass:   *turnPass,
-		DAVUser:    *davUser,
-		DAVPass:    *davPass,
-		DAVMailbox: *davMailbox,
-		Log:        logf,
+		Mode:              engine.Mode(*mode),
+		Listen:            *listen,
+		Server:            *server,
+		PSK:               *psk,
+		Split:             *split,
+		Multi:             *multi,
+		Camo:              *camo,
+		SNI:               *sni,
+		FakeCH:            *fakeCH,
+		SmartSplit:        *smart,
+		Direct:            splitList(*direct),
+		Proxy:             splitList(*proxy),
+		DAVURL:            *dav,
+		CDNEdge:           *cdn,
+		CDNSNI:            *cdnSNI,
+		CDNHost:           *cdnHost,
+		BotLPURL:          *botlpURL,
+		BotLPToken:        *botlpToken,
+		BotLPRoom:         *botlpRoom,
+		BotLPKind:         *botlpKind,
+		BotLPChat:         *botlpChat,
+		TURNServer:        *turn,
+		TURNUser:          *turnUser,
+		TURNPass:          *turnPass,
+		CDNWS:             *cdnWS,
+		Fallbacks:         []engine.TransportSpec(fallbacks),
+		NoFailover:        *noFailover,
+		FailoverProbeSecs: *probeSecs,
+		DAVUser:           *davUser,
+		DAVPass:           *davPass,
+		DAVMailbox:        *davMailbox,
+		Log:               logf,
 	})
 	if err := e.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "qulogi:", err)
@@ -129,4 +142,24 @@ func splitList(raw string) []string {
 		}
 	}
 	return out
+}
+
+// fallbackList collects repeatable -fallback JSON specs.
+type fallbackList []engine.TransportSpec
+
+func (f *fallbackList) String() string {
+	if f == nil {
+		return ""
+	}
+	b, _ := json.Marshal([]engine.TransportSpec(*f))
+	return string(b)
+}
+
+func (f *fallbackList) Set(v string) error {
+	var spec engine.TransportSpec
+	if err := json.Unmarshal([]byte(v), &spec); err != nil {
+		return fmt.Errorf("-fallback: %w", err)
+	}
+	*f = append(*f, spec)
+	return nil
 }

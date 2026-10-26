@@ -40,6 +40,10 @@ type Transport struct {
 	// Host carries the relay hostname behind the CDN edge for cdn-front
 	// transports (the Host header routed by the CDN to the origin).
 	Host string `json:"host,omitempty"`
+	// WS marks cdn-front transports fronted by a real CDN network:
+	// the tunnel rides RFC 6455 WebSocket binary frames instead of
+	// the legacy bare upgrade.
+	WS bool `json:"ws,omitempty"`
 }
 
 // Relay is a single relay and every transport it can be reached by.
