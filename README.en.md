@@ -140,6 +140,9 @@ Ready-made binaries and APK are built by CI in the Actions tab.
 - [x] SNI sniffing in the TUN stack: in VPN mode the split matches domains from the ClientHello, not just IPs
 - [x] CDN fronting: the tunnel through a whitelisted CDN edge (TLS with an allowed SNI, Host-routed to the relay behind the same CDN)
 - [x] Bot long-poll: tunnel frames via a whitelisted platform's official API (generic send/poll contract)
+- [x] TURN relay (reconnaissance + transport): the tunnel through a TURN server's TCP peer connection (RFC 5766/6062), an honest Allocate probe in auto-discovery, the reference server `qulogiturn`
+- [x] botlp bridges for concrete platforms: VK Bot API and Max Bot API adapters (`botlp-kind`), rooms multiplexed inside one chat's message texts
+- [x] One-tap auto-connect: catalog → probe every transport → the best one by RTT → connect, with zero manual setup
 - [x] UDP over the tunnel: QUIC and other UDP ride the relay as framed datagrams
 - [ ] Domain fronting via real CDNs of whitelisted platforms
 - [x] Smart split: whitelisted domains and networks go directly, the tunnel carries only the rest; embedded starter whitelist + user rules (direct/proxy), per-flow routing in VPN mode
