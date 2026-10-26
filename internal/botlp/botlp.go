@@ -66,13 +66,25 @@ var (
 	ErrNotFound = errors.New("botlp: room not found")
 )
 
-// Platform is the HTTP face of the whitelisted platform API.
+// Platform is the HTTP face of the generic whitelisted-platform API.
 type Platform struct {
 	Base   string       // e.g. https://api.example.org/bot
 	Token  string       // shared bot token
 	HTTP   *http.Client // nil → client with sane timeouts
 	chunk  int
 	pollWt int
+}
+
+// API is the transport face every platform adapter implements: the
+// generic send/poll contract (*Platform) and the chat bridges for
+// concrete platforms (VK, Max — see chat.go, vk.go, max.go).
+type API interface {
+	// Send posts one frame to the room.
+	Send(ctx context.Context, room string, data []byte) error
+	// Poll long-polls the room: it returns once frames with seq greater
+	// than the given one exist (or after the server-side wait elapses),
+	// together with the new cursor.
+	Poll(ctx context.Context, room string, seq uint64) (uint64, [][]byte, error)
 }
 
 // NewPlatform validates the API base and returns a platform handle.
@@ -189,7 +201,9 @@ const (
 // Pipe is a net.Conn over the platform: writes go out as frames in the
 // session room, reads come from long-polling the reply room.
 type PipeConfig struct {
-	Platform *Platform
+	// Platform supplies the API adapter: the generic HTTP contract or a
+	// chat bridge for a concrete platform (VK, Max).
+	Platform API
 	// Role selects the mailbox halves (default client).
 	Role string
 	// Room is the session name both sides of the connection agree on.
@@ -212,7 +226,7 @@ type PipeConfig struct {
 
 type Pipe struct {
 	cfg    PipeConfig
-	p      *Platform
+	p      API
 	ctx    context.Context
 	cancel context.CancelFunc
 

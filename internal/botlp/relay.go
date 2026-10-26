@@ -13,7 +13,8 @@ import (
 
 // RelayConfig wires the relay side of the bot-longpoll transport.
 type RelayConfig struct {
-	Platform *Platform
+	// Platform is the API adapter (generic contract or a chat bridge).
+	Platform API
 	// Room is the operator's base room; the control room <Room>-ctl
 	// carries session advertisements ("open:<session-room>").
 	Room string
