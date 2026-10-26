@@ -143,9 +143,10 @@ jobs:
           Инструмент обхода «белых списков»: Flutter M3 + Go (только стандартная библиотека).
 
           ### Файлы
-          - `qulogi-*-android.apk` — Android-приложение (SOCKS5 / VPN-режим, автопоиск релеев, умный сплит, storage-webdav)
-          - `qulogi-<платформа>` — клиент (локальный SOCKS5)
-          - `qulogid-<платформа>` — релей для вашего сервера
+          - `qulogi-*-android.apk` — Android-приложение (SOCKS5 / VPN-режим, автопоиск релеев, авто-подключение, умный сплит, все транспорты)
+          - `qulogi-<платформа>` — клиент (локальный SOCKS5, все транспорты: TCP/TLS, WebDAV, cdn-front, bot-longpoll, turn-relay)
+          - `qulogid-<платформа>` — релей для вашего сервера (TCP/WebDAV/cdn-front/botlp-режимы)
+          - `qulogiturn-<платформа>` — reference TURN-сервер (RFC 6062) для релеев сообщества
 
           ### Быстрый старт
           ```bash
@@ -163,5 +164,6 @@ jobs:
           body_path: dist/RELEASE.md
           files: |
             dist/qulogi-*
+            dist/qulogiturn-*
             dist/qulogid-*
           generate_release_notes: true
