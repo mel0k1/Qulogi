@@ -168,10 +168,50 @@ func (s *Server) logf(format string, args ...any) {
 }
 
 func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
-	if !strings.Contains(strings.ToLower(r.Header.Get("Upgrade")), "qulogi") {
+	upgrade := strings.ToLower(r.Header.Get("Upgrade"))
+	switch {
+	case strings.Contains(upgrade, "websocket"):
+		s.handleWS(w, r)
+	case strings.Contains(upgrade, "qulogi"):
+		s.handleLegacyUpgrade(w, r)
+	default:
 		http.Error(w, "qulogi tunnel endpoint", http.StatusMisdirectedRequest)
+	}
+}
+
+// handleWS accepts an RFC 6455 upgrade (real CDN edges).
+func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
+	key := r.Header.Get("Sec-WebSocket-Key")
+	if key == "" {
+		http.Error(w, "missing websocket key", http.StatusBadRequest)
 		return
 	}
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "upgrade unsupported", http.StatusInternalServerError)
+		return
+	}
+	conn, br, err := hj.Hijack()
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	resp := strings.Join([]string{
+		"HTTP/1.1 101 Switching Protocols",
+		"Upgrade: websocket",
+		"Connection: Upgrade",
+		"Sec-WebSocket-Accept: " + wsAcceptValue(key),
+		"Sec-WebSocket-Protocol: qulogi",
+		"", "",
+	}, "\r\n")
+	if _, err := conn.Write([]byte(resp)); err != nil {
+		return
+	}
+	s.serveTunnel(conn, br.Reader, r, true)
+}
+
+// handleLegacyUpgrade keeps the pre-0.6 bare qulogi switch working.
+func (s *Server) handleLegacyUpgrade(w http.ResponseWriter, r *http.Request) {
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		http.Error(w, "upgrade unsupported", http.StatusInternalServerError)
@@ -191,9 +231,20 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	if _, err := conn.Write([]byte(resp)); err != nil {
 		return
 	}
+	s.serveTunnel(conn, br.Reader, r, false)
+}
+
+// serveTunnel hands a switched stream to the tunnel acceptor; with ws
+// the stream carries WebSocket binary frames.
+func (s *Server) serveTunnel(conn net.Conn, br *bufio.Reader, r *http.Request, ws bool) {
 	s.logf("cdn-front session from %s (host %s)", conn.RemoteAddr(), r.Host)
 	logFn := func(msg string) { s.logf("%s", msg) }
-	if err := accept(conn, br.Reader, s.PSK, logFn); err != nil {
+	wrapped := &bufferedConn{Conn: conn, r: br}
+	var stream net.Conn = wrapped
+	if ws {
+		stream = newWSServerStream(wrapped)
+	}
+	if err := accept(stream, nil, s.PSK, logFn); err != nil {
 		s.logf("cdn-front session %s: %v", conn.RemoteAddr(), err)
 	}
 }
