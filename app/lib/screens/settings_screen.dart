@@ -130,12 +130,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       try {
         final v = jsonDecode(_fallbacks.text);
         if (v is! List) throw const FormatException('нужен массив');
-        parsed = v
-            .whereType<Map<String, dynamic>>()
-            .toList();
-        if (parsed.length != (v as List).length) {
+        final items = v.whereType<Map<String, dynamic>>().toList();
+        if (items.length != v.length) {
           throw const FormatException('каждый элемент должен быть объектом');
         }
+        parsed = items;
         _fallbacksError = '';
       } catch (e) {
         setState(() => _fallbacksError = 'Некорректный JSON резервов: $e');

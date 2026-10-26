@@ -111,8 +111,9 @@ class EngineController extends ChangeNotifier {
       if (error != null) {
         throw Exception(error!);
       }
-      autoInfo = '${best.relayId} · ${best.type} · ${best.rttMs.round()} мс'
-          + (reserves.isEmpty ? '' : ' · резервы: ${reserves.length}');
+      autoInfo =
+          '${best.relayId} · ${best.type} · ${best.rttMs.round()} мс'
+          '${reserves.isEmpty ? '' : ' · резервы: ${reserves.length}'}';
     } catch (e) {
       error = 'Автоподключение не удалось: ${_cleanError(e)}';
       autoState = AutoConnectState.idle;
