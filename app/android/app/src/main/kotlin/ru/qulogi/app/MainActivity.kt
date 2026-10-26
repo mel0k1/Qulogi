@@ -3,10 +3,13 @@ package ru.qulogi.app
 import android.content.Intent
 import android.net.VpnService
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import mobile.Mobile
+import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
 
@@ -14,6 +17,9 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL = "qulogi/engine"
         private const val REQUEST_VPN = 4711
     }
+
+    private val goExecutor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private var pendingVpnConfig: String? = null
     private var pendingVpnResult: MethodChannel.Result? = null
@@ -29,28 +35,38 @@ class MainActivity : FlutterActivity() {
         EngineBus.attach(channel)
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
-                "start" -> try {
+                "start" -> onGo(result) {
                     Mobile.configure(call.arguments<String>())
                     Mobile.start()
-                    result.success(null)
-                } catch (e: Exception) {
-                    result.error("engine", e.message, null)
+                    null
                 }
-                "stop" -> {
+                "stop" -> onGo(result) {
                     Mobile.stop()
-                    result.success(null)
+                    null
                 }
-                "status" -> result.success(Mobile.status())
+                "status" -> onGo(result) { Mobile.status() }
                 "startVpn" -> startVpnFlow(call.arguments<String>(), result)
                 "stopVpn" -> stopVpn(result)
-                "vpnStatus" -> result.success(Mobile.vpnStatus())
+                "vpnStatus" -> onGo(result) { Mobile.vpnStatus() }
                 "drainLogs" -> result.success(EngineBus.drain())
-                "fetchDirectory" -> try {
-                    result.success(Mobile.fetchDirectory(call.arguments<String>()))
-                } catch (e: Exception) {
-                    result.error("discover", e.message, null)
+                "fetchDirectory" -> onGo(result, "discover") {
+                    Mobile.fetchDirectory(call.arguments<String>())
                 }
                 else -> result.notImplemented()
+            }
+        }
+    }
+
+    // Go calls block: on the main thread they freeze input and end in an
+    // ANR kill. Replies must return through the main looper.
+    private fun onGo(result: MethodChannel.Result, code: String = "engine", work: () -> Any?) {
+        goExecutor.execute {
+            val reply = runCatching { work() }
+            mainHandler.post {
+                reply.fold(
+                    onSuccess = { result.success(it) },
+                    onFailure = { result.error(code, it.message ?: "error", null) },
+                )
             }
         }
     }
@@ -100,7 +116,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun doStartVpn(config: String) {
-        Mobile.setBlocked(false)
+        goExecutor.execute { runCatching { Mobile.setBlocked(false) } }
         val intent = Intent(this, QulogiVpnService::class.java)
             .putExtra(QulogiVpnService.EXTRA_CONFIG, config)
         startForegroundService(intent)
@@ -109,16 +125,16 @@ class MainActivity : FlutterActivity() {
     private fun stopVpn(result: MethodChannel.Result) {
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
         val killSwitch = prefs.getBoolean("flutter.killswitch", false)
-        if (killSwitch && Mobile.vpnStatus() != "{}") {
-            // Keep the TUN interface up and black-hole every new flow so
-            // nothing can leak while the user thinks traffic is protected.
-            Mobile.setBlocked(true)
-            EngineBus.sendState("blocked")
-        } else {
-            Mobile.stopVPN()
-            stopService(Intent(this, QulogiVpnService::class.java))
-            EngineBus.sendState("stopped")
+        onGo(result) {
+            if (killSwitch && Mobile.vpnStatus() != "{}") {
+                Mobile.setBlocked(true)
+                EngineBus.sendState("blocked")
+            } else {
+                Mobile.stopVPN()
+                stopService(Intent(this, QulogiVpnService::class.java))
+                EngineBus.sendState("stopped")
+            }
+            null
         }
-        result.success(null)
     }
 }

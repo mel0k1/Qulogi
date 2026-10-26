@@ -9,6 +9,7 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import mobile.Mobile
+import java.util.concurrent.Executors
 
 class QulogiVpnService : VpnService() {
 
@@ -19,6 +20,7 @@ class QulogiVpnService : VpnService() {
         private const val DEFAULT_MTU = 8500
     }
 
+    private val goExecutor = Executors.newSingleThreadExecutor()
     private var tun: ParcelFileDescriptor? = null
 
     override fun onCreate() {
@@ -34,7 +36,7 @@ class QulogiVpnService : VpnService() {
             stopSelf()
             return START_NOT_STICKY
         }
-        startVpn(config)
+        goExecutor.execute { startVpn(config) }
         return START_STICKY
     }
 
@@ -50,11 +52,8 @@ class QulogiVpnService : VpnService() {
             val builder = Builder()
                 .setSession("Qulogi")
                 .setMtu(mtu)
-                // IPv4: catch the default route.
                 .addAddress("10.111.0.1", 32)
                 .addRoute("0.0.0.0", 0)
-                // IPv6 must be captured too, otherwise v6 traffic leaks
-                // past the VPN over the underlying network.
                 .addAddress("fd00:7175:6c6f:6769::1", 128)
                 .addRoute("::", 0)
                 .addDnsServer("10.111.0.1")
@@ -79,16 +78,15 @@ class QulogiVpnService : VpnService() {
     }
 
     override fun onRevoke() {
-        // Another VPN took over or the user disabled it in system settings.
-        Mobile.stopVPN()
-        tun = null
-        EngineBus.sendState("stopped")
+        goExecutor.execute {
+            Mobile.stopVPN()
+            EngineBus.sendState("stopped")
+        }
         stopSelf()
     }
 
     override fun onDestroy() {
-        Mobile.stopVPN()
-        tun = null
+        goExecutor.execute { Mobile.stopVPN() }
         super.onDestroy()
     }
 
