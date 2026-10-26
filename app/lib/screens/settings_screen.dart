@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -35,6 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _turnServer;
   late final TextEditingController _turnUser;
   late final TextEditingController _turnPass;
+  late final TextEditingController _fallbacks;
   bool _obscure = true;
   bool _obscureBotlp = true;
   bool _obscureDav = true;
@@ -48,6 +50,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _autostart = false;
   bool _killswitch = false;
   bool _smartSplit = true;
+  bool _cdnWs = false;
+  bool _noFailover = false;
+  String _fallbacksError = '';
 
   static const _sniPresets = ['vkvideo.ru', 'rutube.ru', 'ok.ru', 'dzen.ru'];
 
@@ -75,6 +80,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _turnServer = TextEditingController(text: cfg.turnServer);
     _turnUser = TextEditingController(text: cfg.turnUser);
     _turnPass = TextEditingController(text: cfg.turnPass);
+    _fallbacks = TextEditingController(
+      text: cfg.fallbacks.isEmpty
+          ? ''
+          : const JsonEncoder.withIndent('  ').convert(cfg.fallbacks),
+    );
     _split = cfg.split;
     _multi = cfg.multiSplit;
     _camo = cfg.camo;
@@ -83,6 +93,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _autostart = cfg.autostart;
     _killswitch = cfg.killswitch;
     _smartSplit = cfg.smartSplit;
+    _cdnWs = cfg.cdnWs;
+    _noFailover = cfg.noFailover;
   }
 
   @override
@@ -107,10 +119,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _turnServer.dispose();
     _turnUser.dispose();
     _turnPass.dispose();
+    _fallbacks.dispose();
     super.dispose();
   }
 
   void _save() {
+    // Резервы failover: пусто = нет; иначе — JSON-массив TransportSpec.
+    List<Map<String, dynamic>>? parsed;
+    if (_fallbacks.text.trim().isNotEmpty) {
+      try {
+        final v = jsonDecode(_fallbacks.text);
+        if (v is! List) throw const FormatException('нужен массив');
+        parsed = v
+            .whereType<Map<String, dynamic>>()
+            .toList();
+        if (parsed.length != (v as List).length) {
+          throw const FormatException('каждый элемент должен быть объектом');
+        }
+        _fallbacksError = '';
+      } catch (e) {
+        setState(() => _fallbacksError = 'Некорректный JSON резервов: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не сохранено: $_fallbacksError')),
+        );
+        return;
+      }
+    } else {
+      _fallbacksError = '';
+    }
     widget.controller.update(
       server: _server.text.trim(),
       psk: _psk.text,
@@ -132,6 +168,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       cdnEdge: _cdnEdge.text.trim(),
       cdnSni: _cdnSni.text.trim(),
       cdnHost: _cdnHost.text.trim(),
+      cdnWs: _cdnWs,
+      fallbacks: parsed,
+      noFailover: _noFailover,
       botlpUrl: _botlpUrl.text.trim(),
       botlpToken: _botlpToken.text,
       botlpRoom: _botlpRoom.text.trim(),
@@ -182,6 +221,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (usesServer) ..._cdnSection(),
         if (usesServer) ..._botlpSection(),
         if (usesServer) ..._turnSection(),
+        if (usesServer) ..._failoverSection(),
         if (usesServer) ..._splitSection(),
         if (mode == EngineMode.dpi) ..._proxySection(),
         if (mode == EngineMode.dpi) ..._dpiSection(),
@@ -361,6 +401,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               border: OutlineInputBorder(),
             ),
           ),
+          const SizedBox(height: 12),
+          SwitchListTile(
+            value: _cdnWs,
+            onChanged: (v) => setState(() => _cdnWs = v),
+            title: const Text('Реальный CDN (WebSocket RFC 6455)'),
+            subtitle: const Text(
+                'включать, когда релей стоит за настоящей CDN-сетью (Cloudflare, Gcore, Selectel, Yandex Cloud): кадры едут WS-фреймами'),
+          ),
         ],
         const SizedBox(height: 24),
       ];
@@ -477,6 +525,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ],
+        const SizedBox(height: 24),
+      ];
+
+  List<Widget> _failoverSection() => [
+        Text('Авто-переезд при деградации',
+            style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 12),
+        SwitchListTile(
+          value: !_noFailover,
+          onChanged: (v) => setState(() => _noFailover = !v),
+          title: const Text('Переехать на резервный транспорт'),
+          subtitle: const Text(
+              'монитор проверяет активный транспорт и переезжает на резерв при деградации; когда лучший восстановится — вернётся'),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _fallbacks,
+          maxLines: 6,
+          minLines: 2,
+          decoration: InputDecoration(
+            labelText: 'Резервные транспорты (JSON-массив)',
+            hintText:
+                '[{"kind":"tcp","server":"r2.example.net:443"},\n {"kind":"cdn","server":"edge:443","host":"relay","ws":true}]',
+            border: const OutlineInputBorder(),
+            errorText:
+                _fallbacksError.isEmpty ? null : _fallbacksError,
+            helperText:
+                'kind: tcp | cdn | turn | dav | botlp; попробуются по порядку, если основной ляжет',
+          ),
+        ),
         const SizedBox(height: 24),
       ];
 

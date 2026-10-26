@@ -179,6 +179,16 @@ class _StatusPage extends StatelessWidget {
                     .bodyMedium
                     ?.copyWith(color: scheme.onSurfaceVariant),
               ),
+            if (running && controller.status.transport.isNotEmpty)
+              Text(
+                controller.status.failovers > 0
+                    ? 'транспорт ${controller.status.transport} · переездов: ${controller.status.failovers}'
+                    : 'транспорт ${controller.status.transport}',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
             if (controller.vpnBlocked)
               Text(
                 'новые связи отклоняются, утечек нет',

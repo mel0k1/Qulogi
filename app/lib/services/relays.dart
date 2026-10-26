@@ -126,6 +126,7 @@ class DiscoveredRelay {
     required this.rttMs,
     this.sni = '',
     this.host = '',
+    this.ws = false,
   });
 
   final String relayId;
@@ -136,6 +137,9 @@ class DiscoveredRelay {
   /// Secondary address: the relay hostname behind a CDN edge or the peer
   /// address behind a TURN server.
   final String host;
+
+  /// cdn-front: RFC 6455 WebSocket upgrade (real CDN network).
+  final bool ws;
   final double rttMs;
 
   factory DiscoveredRelay.fromJson(Map<String, dynamic> json) =>
@@ -145,6 +149,7 @@ class DiscoveredRelay {
         addr: json['addr'] as String? ?? '',
         sni: json['sni'] as String? ?? '',
         host: json['host'] as String? ?? '',
+        ws: json['ws'] as bool? ?? false,
         rttMs: (json['rtt_ms'] as num?)?.toDouble() ?? 0,
       );
 

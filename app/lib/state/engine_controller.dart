@@ -96,6 +96,14 @@ class EngineController extends ChangeNotifier {
       }
       final best = report.relays.first;
       _applyTransport(best);
+      // Auto-failover chain: the remaining live transports become the
+      // reserves in probe order.
+      final reserves = <Map<String, dynamic>>[];
+      for (final r in report.relays.skip(1)) {
+        final spec = _fallbackSpec(r);
+        if (spec != null) reserves.add(spec);
+      }
+      config.fallbacks = reserves;
       autoState = AutoConnectState.connecting;
       notifyListeners();
 
@@ -103,7 +111,8 @@ class EngineController extends ChangeNotifier {
       if (error != null) {
         throw Exception(error!);
       }
-      autoInfo = '${best.relayId} · ${best.type} · ${best.rttMs.round()} мс';
+      autoInfo = '${best.relayId} · ${best.type} · ${best.rttMs.round()} мс'
+          + (reserves.isEmpty ? '' : ' · резервы: ${reserves.length}');
     } catch (e) {
       error = 'Автоподключение не удалось: ${_cleanError(e)}';
       autoState = AutoConnectState.idle;
@@ -112,6 +121,42 @@ class EngineController extends ChangeNotifier {
     }
     autoState = AutoConnectState.idle;
     notifyListeners();
+  }
+
+  /// Maps one discovered transport to a failover reserve spec; returns
+  /// null when the transport needs credentials the user does not have.
+  Map<String, dynamic>? _fallbackSpec(DiscoveredRelay r) {
+    switch (r.type) {
+      case 'qulogi-tls':
+      case 'qulogi-tcp':
+        if (config.psk.isEmpty) return null;
+        return {'kind': 'tcp', 'server': r.addr};
+      case 'turn-relay':
+        if (config.psk.isEmpty || r.host.isEmpty) return null;
+        return {'kind': 'turn', 'server': r.addr, 'host': r.host};
+      case 'storage-webdav':
+        return {'kind': 'dav', 'url': r.addr};
+      case 'bot-longpoll':
+        if (config.botlpToken.isEmpty) return null;
+        return {
+          'kind': 'botlp',
+          'url': r.addr,
+          'room': config.botlpRoom.isEmpty ? 'qulogi' : config.botlpRoom,
+          if (config.botlpKind.isNotEmpty) 'platform': config.botlpKind,
+          if (config.botlpChat.isNotEmpty) 'chat': config.botlpChat,
+        };
+      case 'cdn-front':
+        if (r.host.isEmpty) return null;
+        return {
+          'kind': 'cdn',
+          'server': r.addr,
+          'host': r.host,
+          if (r.sni.isNotEmpty) 'sni': r.sni,
+          if (r.ws) 'ws': true,
+        };
+      default:
+        return null;
+    }
   }
 
   /// Wires one discovered transport into the config, clearing every other
@@ -166,6 +211,7 @@ class EngineController extends ChangeNotifier {
     if (r.type != 'storage-webdav') config.davUrl = '';
     if (r.type != 'bot-longpoll') config.botlpUrl = '';
     if (r.type != 'cdn-front') config.cdnEdge = '';
+    config.cdnWs = r.type == 'cdn-front' && r.ws;
     _store.save(config);
   }
 
@@ -293,6 +339,9 @@ class EngineController extends ChangeNotifier {
     String? cdnEdge,
     String? cdnSni,
     String? cdnHost,
+    bool? cdnWs,
+    List<Map<String, dynamic>>? fallbacks,
+    bool? noFailover,
     String? botlpUrl,
     String? botlpToken,
     String? botlpRoom,
@@ -323,6 +372,9 @@ class EngineController extends ChangeNotifier {
     if (cdnEdge != null) config.cdnEdge = cdnEdge;
     if (cdnSni != null) config.cdnSni = cdnSni;
     if (cdnHost != null) config.cdnHost = cdnHost;
+    if (cdnWs != null) config.cdnWs = cdnWs;
+    if (fallbacks != null) config.fallbacks = fallbacks;
+    if (noFailover != null) config.noFailover = noFailover;
     if (botlpUrl != null) config.botlpUrl = botlpUrl;
     if (botlpToken != null) config.botlpToken = botlpToken;
     if (botlpRoom != null) config.botlpRoom = botlpRoom;

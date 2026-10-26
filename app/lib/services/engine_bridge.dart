@@ -30,6 +30,9 @@ class EngineConfig {
     this.cdnEdge = '',
     this.cdnSni = '',
     this.cdnHost = '',
+    this.cdnWs = false,
+    this.fallbacks = const [],
+    this.noFailover = false,
     this.botlpUrl = '',
     this.botlpToken = '',
     this.botlpRoom = '',
@@ -73,10 +76,22 @@ class EngineConfig {
   String davMailbox;
 
   /// CDN fronting (M4): TLS to a whitelisted CDN edge, Host header routes
-  /// to the relay behind the same CDN.
+  /// to the relay behind the same CDN. [cdnWs] switches to the RFC 6455
+  /// WebSocket upgrade used with real CDN networks.
   String cdnEdge;
   String cdnSni;
   String cdnHost;
+  bool cdnWs;
+
+  /// Reserve transports for auto-failover: when the active transport
+  /// degrades the engine moves to the next one and back when it heals.
+  /// Each entry is a TransportSpec JSON map, e.g.
+  /// {'kind': 'tcp', 'server': 'host:port'} or
+  /// {'kind': 'cdn', 'server': 'edge', 'host': 'relay', 'ws': true}.
+  List<Map<String, dynamic>> fallbacks;
+
+  /// Disables the failover monitor and reserve transports.
+  bool noFailover;
 
   /// Bot long-poll transport (M5): frames via a whitelisted platform API
   /// (generic send/poll contract, see internal/botlp).
@@ -122,6 +137,11 @@ class EngineConfig {
           'cdn_edge': cdnEdge,
           'cdn_sni': cdnSni,
           'cdn_host': cdnHost,
+          if (cdnWs) 'cdn_ws': true,
+        },
+        if (fallbacks.isNotEmpty) ...{
+          'fallbacks': fallbacks,
+          'no_failover': noFailover,
         },
         if (botlpUrl.isNotEmpty) ...{
           'botlp_url': botlpUrl,
@@ -164,9 +184,14 @@ class EngineConfig {
         davUser: json['dav_user'] as String? ?? '',
         davPass: json['dav_pass'] as String? ?? '',
         davMailbox: json['dav_mailbox'] as String? ?? 'qulogi',
-          cdnEdge: json['cdn_edge'] as String? ?? '',
+        cdnEdge: json['cdn_edge'] as String? ?? '',
         cdnSni: json['cdn_sni'] as String? ?? '',
         cdnHost: json['cdn_host'] as String? ?? '',
+        cdnWs: json['cdn_ws'] as bool? ?? false,
+        fallbacks: (json['fallbacks'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .toList(),
+        noFailover: json['no_failover'] as bool? ?? false,
         botlpUrl: json['botlp_url'] as String? ?? '',
         botlpToken: json['botlp_token'] as String? ?? '',
         botlpRoom: json['botlp_room'] as String? ?? 'qulogi',
@@ -208,6 +233,8 @@ class EngineStatus {
     this.bytesUp = 0,
     this.bytesDown = 0,
     this.uptime = 0,
+    this.transport = '',
+    this.failovers = 0,
   });
 
   final bool running;
@@ -216,12 +243,20 @@ class EngineStatus {
   final int bytesDown;
   final int uptime;
 
+  /// Active transport (failover chain head): "tcp:host", "cdn:edge"...
+  final String transport;
+
+  /// Degradation switches since start.
+  final int failovers;
+
   factory EngineStatus.fromJson(Map<String, dynamic> json) => EngineStatus(
         running: json['running'] as bool? ?? false,
         connections: json['connections'] as int? ?? 0,
         bytesUp: json['bytes_up'] as int? ?? 0,
         bytesDown: json['bytes_down'] as int? ?? 0,
         uptime: json['uptime'] as int? ?? 0,
+        transport: json['transport'] as String? ?? '',
+        failovers: json['failovers'] as int? ?? 0,
       );
 }
 
@@ -403,6 +438,7 @@ class DesktopEngineBridge implements EngineBridge {
             '-cdn-sni',
             config.cdnSni.trim(),
           ],
+          if (config.cdnWs) '-cdn-ws',
         ] else if (config.botlpUrl.trim().isNotEmpty) ...[
           '-botlp',
           config.botlpUrl.trim(),
@@ -446,6 +482,11 @@ class DesktopEngineBridge implements EngineBridge {
         ],
         '-psk',
         config.psk,
+        for (final fb in config.fallbacks) ...[
+          '-fallback',
+          jsonEncode(fb),
+        ],
+        if (config.noFailover) '-no-failover',
         if (config.camo && config.davUrl.trim().isEmpty) ...[
           '-camo',
           '-sni',
