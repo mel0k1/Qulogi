@@ -1,25 +1,3 @@
-// Package cdnfront implements the cdn-front transport class from
-// docs/RELAY_DISCOVERY.md (M4): the client opens TLS to the edge of a
-// whitelisted CDN while the inner HTTP request carries the Host of a relay
-// parked behind the same CDN.
-//
-//	device ──TLS(SNI: белый домен)──► CDN edge ──Host: relay──► origin (qulogid)
-//
-// The filter sees a connection to an allowed CDN address with an allowed
-// SNI; the CDN routes by the Host header, which it does not cross-check
-// against SNI (the working condition of this transport). The tunnel rides
-// an HTTP/1.1 Upgrade, so both directions stay streaming:
-//
-//	GET /qulogi HTTP/1.1
-//	Host: relay.example.net
-//	Upgrade: qulogi/1
-//	Connection: Upgrade
-//
-//	HTTP/1.1 101 Switching Protocols
-//	Upgrade: qulogi/1
-//
-// After the switch the raw byte stream is exactly the tunnel protocol
-// (salt handshake, address header, TCP stream or framed UDP datagrams).
 package cdnfront
 
 import (
@@ -33,28 +11,18 @@ import (
 	"time"
 )
 
-// DefaultPath is the tunnel endpoint both sides agree on.
 const DefaultPath = "/qulogi"
 
-// Front dials the relay through a CDN edge (client side).
+// Front dials the relay through a CDN edge.
 type Front struct {
-	// EdgeAddr is the CDN edge the filter allows: host:port.
-	EdgeAddr string
-	// EdgeSNI is the whitelisted hostname claimed in the TLS handshake.
-	EdgeSNI string
-	// Host is the relay hostname behind the same CDN; the CDN routes by
-	// this Host header to the origin.
-	Host string
-	// Path is the tunnel endpoint (default /qulogi).
-	Path string
-	// InsecureSkipVerify skips the edge certificate verification. For
-	// tests and self-signed edge pins; production keeps WebPKI.
+	EdgeAddr           string
+	EdgeSNI            string
+	Host               string
+	Path               string
 	InsecureSkipVerify bool
-	// Timeout bounds dial + TLS + upgrade (default 10s).
-	Timeout time.Duration
+	Timeout            time.Duration
 }
 
-// Dial connects through the CDN and returns the raw tunnel stream.
 func (f Front) Dial() (net.Conn, error) {
 	timeout := f.Timeout
 	if timeout == 0 {
@@ -113,7 +81,6 @@ func (f Front) Dial() (net.Conn, error) {
 	return &bufferedConn{Conn: conn, r: br}, nil
 }
 
-// parseErrBody extracts a short human readable reason from a refusal.
 func parseErrBody(resp *http.Response) (string, error) {
 	buf := make([]byte, 256)
 	n, err := resp.Body.Read(buf)
@@ -123,18 +90,14 @@ func parseErrBody(resp *http.Response) (string, error) {
 	return strings.TrimSpace(string(buf[:n])), nil
 }
 
-// Serve accepts tunnel sessions arriving as HTTP Upgrades on an HTTP
-// listener (behind the CDN the origin usually serves plain HTTP; the CDN
-// terminates TLS). A plausible index page masks the endpoint.
+// Serve accepts tunnel sessions arriving as HTTP Upgrades.
 type Server struct {
 	Listener net.Listener
 	PSK      []byte
-	// Path is the tunnel endpoint (default /qulogi).
-	Path string
-	Log  func(string)
+	Path     string
+	Log      func(string)
 }
 
-// handler returns the HTTP surface of the front (index page + tunnel).
 func (s *Server) handler() http.Handler {
 	path := s.Path
 	if path == "" {
@@ -146,13 +109,10 @@ func (s *Server) handler() http.Handler {
 	return mux
 }
 
-// ServeHTTP lets the front be embedded into any HTTP server (tests,
-// custom TLS termination, an existing mux on the origin).
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handler().ServeHTTP(w, r)
 }
 
-// Serve runs until the listener fails.
 func (s *Server) Serve() error {
 	srv := &http.Server{
 		Handler:           s.handler(),
@@ -179,7 +139,6 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleWS accepts an RFC 6455 upgrade (real CDN edges).
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	key := r.Header.Get("Sec-WebSocket-Key")
 	if key == "" {
@@ -210,7 +169,6 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	s.serveTunnel(conn, br.Reader, r, true)
 }
 
-// handleLegacyUpgrade keeps the pre-0.6 bare qulogi switch working.
 func (s *Server) handleLegacyUpgrade(w http.ResponseWriter, r *http.Request) {
 	hj, ok := w.(http.Hijacker)
 	if !ok {
@@ -234,8 +192,6 @@ func (s *Server) handleLegacyUpgrade(w http.ResponseWriter, r *http.Request) {
 	s.serveTunnel(conn, br.Reader, r, false)
 }
 
-// serveTunnel hands a switched stream to the tunnel acceptor; with ws
-// the stream carries WebSocket binary frames.
 func (s *Server) serveTunnel(conn net.Conn, br *bufio.Reader, r *http.Request, ws bool) {
 	s.logf("cdn-front session from %s (host %s)", conn.RemoteAddr(), r.Host)
 	logFn := func(msg string) { s.logf("%s", msg) }
@@ -249,7 +205,6 @@ func (s *Server) serveTunnel(conn net.Conn, br *bufio.Reader, r *http.Request, w
 	}
 }
 
-// handleIndex serves a small plausible page for curious probes.
 func handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)

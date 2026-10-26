@@ -14,7 +14,6 @@ import (
 	"github.com/mel0k1/qulogi/internal/tunnel"
 )
 
-// wsPipe wires two wsStream ends over net.Pipe (client left, server right).
 func wsPipe() (client *wsStream, server *wsStream) {
 	a, b := net.Pipe()
 	return newWSClientStream(a), newWSServerStream(b)
@@ -93,7 +92,7 @@ func TestWSStreamRoundtrip(t *testing.T) {
 			t.Fatal(err)
 		}
 		errCh := make(chan error, 1)
-		go func() { // park the reader before the close frame is written
+		go func() {
 			buf := make([]byte, 8)
 			_, err := sc.Read(buf)
 			errCh <- err
@@ -111,7 +110,6 @@ func TestWSStreamRoundtrip(t *testing.T) {
 func TestWSFrontEndToEnd(t *testing.T) {
 	const psk = "owl-ws-front"
 
-	// The fake CDN edge: TLS termination, Host routing, WS passthrough.
 	front := &Server{PSK: []byte(psk)}
 	edge := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Host != "relay.example.net" {
@@ -198,8 +196,6 @@ func TestWSFrontEndToEnd(t *testing.T) {
 	})
 }
 
-// TestWSFrontLegacyCompatibility proves a WS-speaking client still works
-// against a pre-0.6 front that only confirms the bare qulogi upgrade.
 func TestWSFrontLegacyCompatibility(t *testing.T) {
 	legacy := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !containsFold(r.Header.Get("Upgrade"), "websocket") {
@@ -212,8 +208,6 @@ func TestWSFrontLegacyCompatibility(t *testing.T) {
 			return
 		}
 		defer conn.Close()
-		// A pre-0.6 qulogi front accepts any upgrade it does not
-		// understand as the bare switch (it only greps for "qulogi").
 		resp := "HTTP/1.1 101 Switching Protocols\r\nUpgrade: qulogi/1\r\nConnection: Upgrade\r\n\r\n"
 		if _, err := conn.Write([]byte(resp)); err != nil {
 			return
@@ -248,7 +242,6 @@ func TestWSFrontLegacyCompatibility(t *testing.T) {
 	}
 }
 
-// TestSameHostFrontProfile checks the default posture builder.
 func TestSameHostFrontProfile(t *testing.T) {
 	f := SameHostFront("relay.example.net")
 	if f.EdgeAddr != "relay.example.net" || f.EdgeSNI != "relay.example.net" || f.Host != "relay.example.net" {

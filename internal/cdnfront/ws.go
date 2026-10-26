@@ -1,9 +1,5 @@
 package cdnfront
 
-// RFC 6455 layer: real CDNs proxy only WebSocket upgrades, so the tunnel
-// rides binary frames when fronting through a real CDN network. Client
-// frames are masked as the RFC demands — edges drop unmasked traffic.
-
 import (
 	"bufio"
 	"crypto/rand"
@@ -32,9 +28,6 @@ func wsAcceptValue(key string) string {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
-// wsStream is a net.Conn over WebSocket binary frames. client=true masks
-// outgoing frames and expects unmasked inbound ones; server-side is the
-// reverse.
 type wsStream struct {
 	conn   net.Conn
 	client bool
@@ -64,7 +57,7 @@ func (w *wsStream) Read(b []byte) (int, error) {
 			return 0, err
 		}
 		switch opcode {
-		case 0x2, 0x0: // binary / continuation
+		case 0x2, 0x0:
 			if len(w.rframe)+len(payload) > wsMaxMessage {
 				return 0, errors.New("cdnfront: websocket message too large")
 			}
@@ -76,12 +69,12 @@ func (w *wsStream) Read(b []byte) (int, error) {
 				w.rbuf = w.rbuf[n:]
 				return n, nil
 			}
-		case 0x8: // close
+		case 0x8:
 			_ = w.writeControl(0x8, []byte{0x03, 0xe8})
 			return 0, io.EOF
-		case 0x9: // ping — reply off the data path
+		case 0x9:
 			go func() { _ = w.writeControl(0xA, payload) }()
-		case 0xA: // pong
+		case 0xA:
 		default:
 			return 0, fmt.Errorf("cdnfront: unexpected websocket opcode 0x%x", opcode)
 		}
@@ -145,7 +138,6 @@ func (w *wsStream) Write(b []byte) (int, error) {
 }
 
 func (w *wsStream) Close() error {
-	// Never let the closing handshake park on a dead connection.
 	_ = w.conn.SetWriteDeadline(time.Now().Add(time.Second))
 	_ = w.writeControl(0x8, []byte{0x03, 0xe8})
 	return w.conn.Close()
@@ -204,25 +196,15 @@ func (w *wsStream) readFrame() ([]byte, byte, error) {
 
 // WSFront dials the relay through a real CDN with an RFC 6455 upgrade.
 type WSFront struct {
-	// EdgeAddr is the CDN edge (host or host:port); for same-host camo
-	// it is the relay hostname itself.
-	EdgeAddr string
-	// EdgeSNI is the TLS SNI; default Host.
-	EdgeSNI string
-	// Host is the relay origin hostname routed by the CDN.
-	Host string
-	// Path is the tunnel endpoint (default /qulogi).
-	Path string
-	// InsecureSkipVerify skips edge certificate verification (tests).
+	EdgeAddr           string
+	EdgeSNI            string
+	Host               string
+	Path               string
 	InsecureSkipVerify bool
-	// Timeout bounds dial + TLS + upgrade (default 10s).
-	Timeout time.Duration
-	// Dialer overrides the TCP dial (tests).
-	Dialer func(network, addr string) (net.Conn, error)
+	Timeout            time.Duration
+	Dialer             func(network, addr string) (net.Conn, error)
 }
 
-// Dial connects through the CDN and returns the tunnel stream. A legacy
-// front confirming the bare qulogi upgrade keeps working (raw stream).
 func (f WSFront) Dial() (net.Conn, error) {
 	timeout := f.Timeout
 	if timeout == 0 {
