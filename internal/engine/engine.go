@@ -11,13 +11,11 @@ import (
 	"time"
 
 	"github.com/mel0k1/qulogi/internal/botlp"
-	"github.com/mel0k1/qulogi/internal/cdnfront"
 	"github.com/mel0k1/qulogi/internal/dpi"
 	"github.com/mel0k1/qulogi/internal/route"
 	"github.com/mel0k1/qulogi/internal/socks5"
 	"github.com/mel0k1/qulogi/internal/transport"
 	"github.com/mel0k1/qulogi/internal/tunnel"
-	"github.com/mel0k1/qulogi/internal/turnrelay"
 	"github.com/mel0k1/qulogi/internal/webdav"
 )
 
@@ -75,6 +73,9 @@ type Config struct {
 	CDNEdge string `json:"cdn_edge,omitempty"`
 	CDNSNI  string `json:"cdn_sni,omitempty"`
 	CDNHost string `json:"cdn_host,omitempty"`
+	// CDNWS switches the CDN transport to the RFC 6455 WebSocket upgrade
+	// used with real CDN networks (see internal/cdnfront).
+	CDNWS bool `json:"cdn_ws,omitempty"`
 
 	// Bot long-poll transport (M5): tunnel frames ride the long-poll
 	// API of a whitelisted platform (the botlp contract in
@@ -106,6 +107,15 @@ type Config struct {
 	TURNServer string `json:"turn_server,omitempty"`
 	TURNUser   string `json:"turn_user,omitempty"`
 	TURNPass   string `json:"turn_pass,omitempty"`
+
+	// Auto-failover: Fallbacks lists reserve transports tried when the
+	// primary degrades; the monitor probes and returns to the best one
+	// when it recovers.
+	Fallbacks []TransportSpec `json:"fallbacks,omitempty"`
+	// NoFailover disables the monitor and the sticky switching.
+	NoFailover bool `json:"no_failover,omitempty"`
+	// FailoverProbeSecs is the monitor interval; 0 = 15s.
+	FailoverProbeSecs int `json:"failover_probe_secs,omitempty"`
 }
 
 type Status struct {
@@ -117,6 +127,10 @@ type Status struct {
 	BytesUp     int64  `json:"bytes_up"`
 	BytesDown   int64  `json:"bytes_down"`
 	Uptime      int64  `json:"uptime"`
+	// Transport is the active transport (failover chain head).
+	Transport string `json:"transport,omitempty"`
+	// Failovers counts degradation switches since start.
+	Failovers int64 `json:"failovers"`
 }
 
 type Engine struct {
@@ -126,13 +140,22 @@ type Engine struct {
 	mu         sync.Mutex
 	listener   net.Listener
 	listenAddr string
-	client     *tunnel.Client
 	running    bool
 	started    time.Time
 
-	conns atomic.Int64
-	up    atomic.Int64
-	down  atomic.Int64
+	// Failover chain (see failover.go); guarded by mu.
+	cands []candidate
+	cur   int
+	fails []int
+	cool  []time.Time
+
+	monitorOnce sync.Once
+	stopMon     chan struct{}
+
+	conns     atomic.Int64
+	up        atomic.Int64
+	down      atomic.Int64
+	failovers atomic.Int64
 }
 
 func New(cfg Config) *Engine {
@@ -142,12 +165,15 @@ func New(cfg Config) *Engine {
 	if cfg.Mode == "" {
 		cfg.Mode = ModeDPI
 	}
-	e := &Engine{cfg: cfg}
+	e := &Engine{cfg: cfg, stopMon: make(chan struct{})}
 	if cfg.SmartSplit {
 		e.route = route.Default()
 		e.route.AddDirect(cfg.Direct...)
 		e.route.AddProxy(cfg.Proxy...)
 	}
+	e.cands = e.buildCandidates()
+	e.fails = make([]int, len(e.cands))
+	e.cool = make([]time.Time, len(e.cands))
 	return e
 }
 
@@ -159,7 +185,7 @@ func (e *Engine) Start() error {
 	}
 	switch e.cfg.Mode {
 	case ModeTunnel:
-		if e.cfg.Server == "" && e.cfg.DAVURL == "" && e.cfg.CDNEdge == "" && e.cfg.BotLPURL == "" && e.cfg.TURNServer == "" {
+		if e.cfg.Server == "" && e.cfg.DAVURL == "" && e.cfg.CDNEdge == "" && e.cfg.BotLPURL == "" && e.cfg.TURNServer == "" && len(e.cfg.Fallbacks) == 0 {
 			return errors.New("engine: server required in tunnel mode")
 		}
 		if e.cfg.PSK == "" {
@@ -171,7 +197,12 @@ func (e *Engine) Start() error {
 		if _, _, berr := botlp.BuildAPI(e.cfg.BotLPKind, e.cfg.BotLPURL, e.cfg.BotLPToken, e.cfg.BotLPRoom, e.cfg.BotLPChat); e.cfg.BotLPURL != "" && berr != nil {
 			return berr
 		}
-		e.client = e.tunnelClient()
+		if err := e.validateFallbacks(); err != nil {
+			return err
+		}
+		if len(e.cands) == 0 {
+			return errors.New("engine: no usable transport")
+		}
 	case ModeDPI:
 	case ModeVPN:
 		return errors.New("engine: vpn mode is driven via DialContext, not Start")
@@ -204,6 +235,7 @@ func (e *Engine) Start() error {
 }
 
 func (e *Engine) Stop() {
+	e.monitorOnce.Do(func() { close(e.stopMon) })
 	e.mu.Lock()
 	ln := e.listener
 	e.listener = nil
@@ -233,6 +265,8 @@ func (e *Engine) Status() Status {
 		Connections: e.conns.Load(),
 		BytesUp:     e.up.Load(),
 		BytesDown:   e.down.Load(),
+		Transport:   e.TransportName(),
+		Failovers:   e.failovers.Load(),
 	}
 	if running {
 		st.Uptime = int64(time.Since(started).Seconds())
@@ -250,63 +284,16 @@ func (e *Engine) DialContext(ctx context.Context, network, addr string) (net.Con
 	return e.dial(ctx, network, addr)
 }
 
-func (e *Engine) tunnelClient() *tunnel.Client {
-	c := &tunnel.Client{Server: e.cfg.Server, PSK: []byte(e.cfg.PSK)}
-	if e.cfg.CDNEdge != "" {
-		edge, host, sni := e.cfg.CDNEdge, e.cfg.CDNHost, e.cfg.CDNSNI
-		c.Conn = func() (net.Conn, error) {
-			return cdnfront.Front{EdgeAddr: edge, EdgeSNI: sni, Host: host}.Dial()
-		}
-		return c
+// camoOpts builds the TLS camouflage options for plain tcp candidates.
+func (e *Engine) camoOpts() *transport.ClientOpts {
+	if !e.cfg.Camo {
+		return nil
 	}
-	if e.cfg.BotLPURL != "" {
-		url, token, base := e.cfg.BotLPURL, e.cfg.BotLPToken, e.cfg.BotLPRoom
-		kind, chat := e.cfg.BotLPKind, e.cfg.BotLPChat
-		// Validation ran in Start(); the same adapter is reused here.
-		api, chunk, _ := botlp.BuildAPI(kind, url, token, base, chat)
-		c.Conn = func() (net.Conn, error) {
-			room, err := botlp.NewRoom()
-			if err != nil {
-				return nil, err
-			}
-			return botlp.OpenPipe(botlp.PipeConfig{
-				Platform: api,
-				Role:     botlp.RoleClient,
-				Room:     room,
-				Control:  botlp.ControlRoom(base),
-				Chunk:    chunk,
-				Log:      e.plainLog,
-			}, true)
-		}
-		return c
+	sni := e.cfg.SNI
+	if sni == "" {
+		sni = "vkvideo.ru"
 	}
-	if e.cfg.DAVURL != "" {
-		// Storage transport: the mailbox supplies the connection;
-		// camouflage is pointless (the transport is already TLS to
-		// the whitelisted cloud).
-		c.Conn = e.davConn
-		return c
-	}
-	if e.cfg.TURNServer != "" {
-		turnAddr, user, pass, peer := e.cfg.TURNServer, e.cfg.TURNUser, e.cfg.TURNPass, e.cfg.Server
-		c.Conn = func() (net.Conn, error) {
-			return (&turnrelay.Client{
-				Server: turnAddr,
-				User:   user,
-				Pass:   pass,
-				Log:    e.plainLog,
-			}).Dial(peer)
-		}
-		return c
-	}
-	if e.cfg.Camo {
-		sni := e.cfg.SNI
-		if sni == "" {
-			sni = "vkvideo.ru"
-		}
-		c.Camo = &transport.ClientOpts{SNI: sni, FakeCH: e.cfg.FakeCH, Split: true}
-	}
-	return c
+	return &transport.ClientOpts{SNI: sni, FakeCH: e.cfg.FakeCH, Split: true}
 }
 
 // davConn opens one WebDAV mailbox session (client role).
@@ -387,19 +374,34 @@ func (e *Engine) DialVia(ctx context.Context, network, addr, via string) (net.Co
 	}
 }
 
-// dialTunnel dials through the relay regardless of the route table.
+// dialTunnel dials through the relay trying the failover chain: current
+// transport first, healthy reserves next, cooled-down ones last. The
+// first success becomes the sticky active transport.
 func (e *Engine) dialTunnel(addr string) (net.Conn, error) {
 	target, err := tunnel.ParseAddress(addr)
 	if err != nil {
 		return nil, err
 	}
-	c := e.tunnelClient()
-	e.mu.Lock()
-	if e.client != nil {
-		c = e.client
+	e.monitorOnce.Do(e.startMonitor)
+	order := e.candidateOrder()
+	if order == nil {
+		return nil, errors.New("engine: no transport configured")
 	}
-	e.mu.Unlock()
-	return c.Dial(target)
+	deadline := time.Now().Add(dialBudget)
+	var lastErr error
+	for _, idx := range order {
+		sk, err := e.cands[idx].client.Dial(target)
+		if err == nil {
+			e.adopt(idx)
+			return sk, nil
+		}
+		lastErr = err
+		e.markFailure(idx, err)
+		if time.Now().After(deadline) {
+			break
+		}
+	}
+	return nil, lastErr
 }
 
 // DialPacket opens a UDP tunnel session to addr: the returned conn carries
@@ -415,13 +417,26 @@ func (e *Engine) DialPacket(ctx context.Context, addr string) (net.Conn, error) 
 	if err != nil {
 		return nil, err
 	}
-	c := e.tunnelClient()
-	e.mu.Lock()
-	if e.client != nil {
-		c = e.client
+	e.monitorOnce.Do(e.startMonitor)
+	order := e.candidateOrder()
+	if order == nil {
+		return nil, errors.New("engine: no transport configured")
 	}
-	e.mu.Unlock()
-	return c.DialUDP(target)
+	deadline := time.Now().Add(dialBudget)
+	var lastErr error
+	for _, idx := range order {
+		up, err := e.cands[idx].client.DialUDP(target)
+		if err == nil {
+			e.adopt(idx)
+			return up, nil
+		}
+		lastErr = err
+		e.markFailure(idx, err)
+		if time.Now().After(deadline) {
+			break
+		}
+	}
+	return nil, lastErr
 }
 
 // dialDirect opens a socket straight out, applying the platform socket
