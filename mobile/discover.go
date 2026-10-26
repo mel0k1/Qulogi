@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mel0k1/qulogi/internal/discover"
+	"github.com/mel0k1/qulogi/internal/turnrelay"
 )
 
 // FetchDirectoryParams selects the mirrors to race and the verification key.
@@ -28,11 +29,14 @@ type fetchParams struct {
 }
 
 type probeRow struct {
-	RelayID string  `json:"relay_id"`
-	Type    string  `json:"type"`
-	Addr    string  `json:"addr"`
-	SNI     string  `json:"sni,omitempty"`
-	RTTMS   float64 `json:"rtt_ms"`
+	RelayID string `json:"relay_id"`
+	Type    string `json:"type"`
+	Addr    string `json:"addr"`
+	SNI     string `json:"sni,omitempty"`
+	// Host carries the transport's secondary address: the relay hostname
+	// behind a CDN edge or the peer address behind a TURN server.
+	Host  string  `json:"host,omitempty"`
+	RTTMS float64 `json:"rtt_ms"`
 }
 
 type fetchResult struct {
@@ -110,17 +114,32 @@ func FetchDirectory(params string) string {
 	}
 	pctx, pcancel := context.WithTimeout(context.Background(), budget+time.Second)
 	defer pcancel()
-	live := discover.Pick(pctx, res.Directory, n, budget, discover.DefaultProbe)
+	live := discover.Pick(pctx, res.Directory, n, budget, smartProbe)
 	for _, pr := range live {
 		res.Probes = append(res.Probes, probeRow{
 			RelayID: pr.Relay.ID,
 			Type:    pr.Transport.Type,
 			Addr:    pr.Transport.Addr,
 			SNI:     pr.Transport.SNI,
+			Host:    pr.Transport.Host,
 			RTTMS:   float64(pr.RTT) / float64(time.Millisecond),
 		})
 	}
 	return reportJSON(res)
+}
+
+// smartProbe dispatches the reconnaissance by transport class: turn-relay
+// gets a real Allocate round trip (the only honest liveness signal for a
+// TURN server), everything else falls back to the TCP dial probe.
+func smartProbe(ctx context.Context, r discover.Relay, t discover.Transport) (time.Duration, error) {
+	if t.Type == "turn-relay" {
+		addr, err := turnrelay.ParseServer(t.Addr)
+		if err != nil {
+			return 0, err
+		}
+		return turnrelay.Probe(ctx, addr, "", "")
+	}
+	return discover.Probe(ctx, t)
 }
 
 func reportJSON(r fetchResult) string {
